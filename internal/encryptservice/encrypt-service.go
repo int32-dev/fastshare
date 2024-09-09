@@ -93,10 +93,6 @@ func (g *GcmService) Encrypt(r io.Reader, w io.Writer, totalPlaintextSize int64)
 			return fmt.Errorf("failed to encrypt: %w", err)
 		}
 
-		if err != nil {
-			return fmt.Errorf("failed to write data: %w", err)
-		}
-
 		_, err = w.Write(ciphertext)
 		if err != nil {
 			return fmt.Errorf("failed to write data: %w", err)
