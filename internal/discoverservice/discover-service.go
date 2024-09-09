@@ -12,8 +12,6 @@ import (
 	"github.com/int32-dev/fastshare/internal/encryptservice"
 )
 
-const BROADCAST_PORT = 65432
-
 type DiscoverResponse struct {
 	Addr net.Addr
 	Key  *ecdh.PublicKey
@@ -175,7 +173,7 @@ func (s *DiscoverService) getBroadcastAddresses() ([]*net.UDPAddr, error) {
 	for _, ip := range broadcastAddresses {
 		addr := &net.UDPAddr{
 			IP:   ip,
-			Port: BROADCAST_PORT,
+			Port: s.port,
 		}
 		addrs = append(addrs, addr)
 	}

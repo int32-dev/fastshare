@@ -12,8 +12,8 @@ build-windows-64: $(OUTDIR)
 build-windows-arm64: $(OUTDIR)
 	cd cmd/fastshare && CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -o $(OUTDIR)/fastshare-win-arm64.exe
 
-upload: build
-	scp cmd/fastshare/fastshare servy2:~
+upload: build-64
+	scp bin/fastshare-linux-amd64 servy2:~/fastshare
 
 $(OUTDIR):
 	mkdir $(OUTDIR)
