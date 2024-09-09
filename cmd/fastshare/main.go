@@ -20,7 +20,6 @@ var parser = flags.NewParser(&options, flags.Default)
 func main() {
 	_, err := parser.Parse()
 	if err != nil {
-		fmt.Println(err)
 		os.Exit(1)
 	}
 }
@@ -29,7 +28,6 @@ func getSecretCode() string {
 	fmt.Println("Enter share code:")
 	password, err := term.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
-		fmt.Println(err)
 		os.Exit(1)
 	}
 

@@ -106,8 +106,6 @@ func (s *LocalShareService) Send(r io.Reader, totalSize int64) error {
 		return err
 	}
 
-	fmt.Println("Sending", totalSize, "bytes")
-
 	err = es.Encrypt(r, conn, totalSize)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
@@ -165,10 +163,8 @@ func (s *LocalShareService) Receive(w io.Writer) error {
 		return err
 	}
 
-	fmt.Println("Receiving", totalSize, "bytes")
-
 	err = es.Decrypt(conn, w, totalSize)
-	if err != nil && !errors.Is(err, io.EOF) {
+	if err != nil {
 		return err
 	}
 
