@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/int32-dev/fastshare/internal/discoverservice"
-	"github.com/int32-dev/fastshare/internal/encryptservice"
 	"github.com/int32-dev/fastshare/internal/shareservice"
 )
 
@@ -33,42 +32,14 @@ func (s *SendCommand) Execute(args []string) error {
 		fmt.Println("share code: ", discoveryCode)
 	}
 
-	key, err := genKey()
+	ss, err := shareservice.NewLocalShareService(options.Port, discoveryCode)
 	if err != nil {
 		return err
 	}
-
-	ds, err := discoverservice.NewDiscoveryService(key.PublicKey(), discoveryCode, options.Port)
-	if err != nil {
-		return err
-	}
-
-	defer ds.Close()
-
-	response, err := ds.ListenForReceiver()
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("Receiver found at", response.Addr)
-
-	aeskey, err := encryptservice.GetKey(key, response.Key)
-	if err != nil {
-		return err
-	}
-
-	es, err := encryptservice.NewGcmService(aeskey, discoveryCode)
-	if err != nil {
-		return err
-	}
-
-	ss := shareservice.NewShareService(response.Addr, options.Port, func() {
-		ds.Close()
-	})
 
 	if sendCommand.Message != "" {
 		dat := bytes.NewBufferString(sendCommand.Message)
-		err = ss.Send(dat, es)
+		err = ss.Send(dat, int64(dat.Len()))
 		if err != nil {
 			return err
 		}
@@ -82,12 +53,17 @@ func (s *SendCommand) Execute(args []string) error {
 
 		defer file.Close()
 
-		err = ss.Send(file, es)
+		info, err := file.Stat()
 		if err != nil {
 			return err
 		}
 
-		fmt.Println("File sent. Exiting.")
+		totalSize := info.Size()
+
+		err = ss.Send(file, totalSize)
+		if err != nil {
+			return err
+		}
 	} else {
 		fmt.Println("Missing message or file to send.")
 		os.Exit(1)

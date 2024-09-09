@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/ecdh"
-	"crypto/rand"
 	"fmt"
 	"os"
 	"strings"
@@ -25,10 +23,6 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-}
-
-func genKey() (*ecdh.PrivateKey, error) {
-	return ecdh.X25519().GenerateKey(rand.Reader)
 }
 
 func getSecretCode() string {

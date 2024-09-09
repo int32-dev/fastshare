@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/int32-dev/fastshare/internal/discoverservice"
-	"github.com/int32-dev/fastshare/internal/encryptservice"
 	"github.com/int32-dev/fastshare/internal/shareservice"
 )
 
@@ -28,37 +26,10 @@ func (rc *ReceiveCommand) Execute(args []string) error {
 		fmt.Println("Waiting for sender...")
 	}
 
-	key, err := genKey()
+	ss, err := shareservice.NewLocalShareService(options.Port, receiveCommand.Code)
 	if err != nil {
 		return err
 	}
-
-	ds, err := discoverservice.NewDiscoveryService(key.PublicKey(), receiveCommand.Code, options.Port)
-	if err != nil {
-		return err
-	}
-
-	defer ds.Close()
-
-	response, err := ds.DiscoverSender()
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("Sender found at", response.Addr)
-	ds.Close()
-
-	aeskey, err := encryptservice.GetKey(key, response.Key)
-	if err != nil {
-		return err
-	}
-
-	es, err := encryptservice.NewGcmService(aeskey, receiveCommand.Code)
-	if err != nil {
-		return err
-	}
-
-	ss := shareservice.NewShareService(response.Addr, options.Port, nil)
 
 	if receiveCommand.File != "" {
 		file, err := os.OpenFile(receiveCommand.File, os.O_CREATE|os.O_RDWR, 0644)
@@ -68,16 +39,14 @@ func (rc *ReceiveCommand) Execute(args []string) error {
 
 		defer file.Close()
 
-		err = ss.Receive(file, es)
+		err = ss.Receive(file)
 		if err != nil {
 			return err
 		}
-
-		fmt.Println("received file, exiting.")
 	} else {
 		dat := bytes.NewBuffer(make([]byte, 0, 4096))
 
-		err = ss.Receive(dat, es)
+		err = ss.Receive(dat)
 		if err != nil {
 			return err
 		}

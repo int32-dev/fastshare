@@ -1,29 +1,44 @@
 package shareservice
 
 import (
+	"bytes"
+	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"strings"
 
+	"github.com/int32-dev/fastshare/internal/discoverservice"
 	"github.com/int32-dev/fastshare/internal/encryptservice"
 )
 
 const CHUNK_SIZE = 4096
 
-type ShareService struct {
-	addr            net.Addr
-	port            int
-	onClientConnect func()
+type LocalShareService struct {
+	port      int
+	shareCode string
+	key       *ecdh.PrivateKey
 }
 
-func NewShareService(addr net.Addr, port int, onClientConnect func()) *ShareService {
-	return &ShareService{
-		addr:            addr,
-		port:            port,
-		onClientConnect: onClientConnect,
+func genKey() (*ecdh.PrivateKey, error) {
+	return ecdh.X25519().GenerateKey(rand.Reader)
+}
+
+func NewLocalShareService(port int, shareCode string) (*LocalShareService, error) {
+	key, err := genKey()
+	if err != nil {
+		return nil, err
 	}
+
+	return &LocalShareService{
+		port:      port,
+		shareCode: shareCode,
+		key:       key,
+	}, nil
 }
 
 func getIP(addr net.Addr) string {
@@ -31,7 +46,31 @@ func getIP(addr net.Addr) string {
 	return vals[0]
 }
 
-func (s *ShareService) Send(r io.Reader, es *encryptservice.GcmService) error {
+func (s *LocalShareService) Send(r io.Reader, totalSize int64) error {
+	ds, err := discoverservice.NewDiscoveryService(s.key.PublicKey(), s.shareCode, s.port)
+	if err != nil {
+		return err
+	}
+
+	defer ds.Close()
+
+	response, err := ds.ListenForReceiver()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Receiver found at", response.Addr)
+
+	aeskey, err := encryptservice.GetKey(s.key, response.Key)
+	if err != nil {
+		return err
+	}
+
+	es, err := encryptservice.NewGcmService(aeskey, s.shareCode)
+	if err != nil {
+		return err
+	}
+
 	l, err := net.Listen("tcp", ":"+strconv.Itoa(s.port))
 	if err != nil {
 		return err
@@ -47,7 +86,7 @@ func (s *ShareService) Send(r io.Reader, es *encryptservice.GcmService) error {
 			return err
 		}
 
-		if getIP(s.addr) != getIP(conn.RemoteAddr()) {
+		if getIP(response.Addr) != getIP(conn.RemoteAddr()) {
 			conn.Close()
 			continue
 		}
@@ -55,13 +94,21 @@ func (s *ShareService) Send(r io.Reader, es *encryptservice.GcmService) error {
 		break
 	}
 
-	if s.onClientConnect != nil {
-		s.onClientConnect()
-	}
+	ds.Close()
 
 	defer conn.Close()
 
-	err = es.Encrypt(r, conn)
+	sizeBytes := make([]byte, 8)
+	binary.PutVarint(sizeBytes, totalSize)
+
+	_, err = conn.Write(sizeBytes)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Sending", totalSize, "bytes")
+
+	err = es.Encrypt(r, conn, totalSize)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
@@ -69,15 +116,58 @@ func (s *ShareService) Send(r io.Reader, es *encryptservice.GcmService) error {
 	return nil
 }
 
-func (s *ShareService) Receive(w io.Writer, es *encryptservice.GcmService) error {
-	conn, err := net.Dial("tcp", getIP(s.addr)+":"+strconv.Itoa(s.port))
+func (s *LocalShareService) Receive(w io.Writer) error {
+	key, err := genKey()
+	if err != nil {
+		return err
+	}
+
+	ds, err := discoverservice.NewDiscoveryService(key.PublicKey(), s.shareCode, s.port)
+	if err != nil {
+		return err
+	}
+
+	defer ds.Close()
+
+	response, err := ds.DiscoverSender()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Sender found at", response.Addr)
+	ds.Close()
+
+	aeskey, err := encryptservice.GetKey(key, response.Key)
+	if err != nil {
+		return err
+	}
+
+	es, err := encryptservice.NewGcmService(aeskey, s.shareCode)
+	if err != nil {
+		return err
+	}
+
+	conn, err := net.Dial("tcp", getIP(response.Addr)+":"+strconv.Itoa(s.port))
 	if err != nil {
 		return err
 	}
 
 	defer conn.Close()
 
-	err = es.Decrypt(conn, w)
+	sizeBytes := make([]byte, 8)
+	_, err = io.ReadFull(conn, sizeBytes)
+	if err != nil {
+		return err
+	}
+
+	totalSize, err := binary.ReadVarint(bytes.NewReader(sizeBytes))
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Receiving", totalSize, "bytes")
+
+	err = es.Decrypt(conn, w, totalSize)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}

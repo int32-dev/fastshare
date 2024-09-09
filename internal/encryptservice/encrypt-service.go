@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 )
 
 type GcmService struct {
@@ -69,9 +70,15 @@ func (s *GcmService) decryptGCM(ciphertext []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-const CHUNK_SIZE = 4096
+const CHUNK_SIZE = 8192 * 2
 
-func (g *GcmService) Encrypt(r io.Reader, w io.Writer) error {
+func (g *GcmService) Encrypt(r io.Reader, w io.Writer, totalPlaintextSize int64) error {
+	start := time.Now()
+	updated := time.Time{}
+	sent := int64(0)
+	encSent := int64(0)
+	sentSinceLastUpdate := int64(0)
+
 	buf := make([]byte, CHUNK_SIZE)
 	for {
 		n, err := io.ReadFull(r, buf)
@@ -79,13 +86,13 @@ func (g *GcmService) Encrypt(r io.Reader, w io.Writer) error {
 			return fmt.Errorf("failed to read data: %w", err)
 		}
 
-		if n == 0 {
-			return nil
-		}
-
 		ciphertext, err := g.encryptGCM(buf[:n])
 		if err != nil {
 			return fmt.Errorf("failed to encrypt: %w", err)
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to write data: %w", err)
 		}
 
 		_, err = w.Write(ciphertext)
@@ -93,22 +100,41 @@ func (g *GcmService) Encrypt(r io.Reader, w io.Writer) error {
 			return fmt.Errorf("failed to write data: %w", err)
 		}
 
+		sent += int64(n)
+		encSent += int64(len(ciphertext))
+		sentSinceLastUpdate += int64(n)
+
+		if totalPlaintextSize > 0 && time.Since(updated) > time.Second {
+			progress := float64(sent) / float64(totalPlaintextSize) * 100
+			fmt.Printf("\r%.2f%%", progress)
+			fmt.Printf(" %.2f MB/s", float64(sentSinceLastUpdate)/1024/1024/time.Since(updated).Seconds())
+
+			updated = time.Now()
+			sentSinceLastUpdate = 0
+		}
+
 		if n < CHUNK_SIZE {
+			fmt.Printf("\r100.00%%")
+			fmt.Printf(" %.2f MB/s\n", float64(encSent)/1024/1024/time.Since(start).Seconds())
+
 			return io.EOF
 		}
 	}
 }
 
-func (g *GcmService) Decrypt(r io.Reader, w io.Writer) error {
+func (g *GcmService) Decrypt(r io.Reader, w io.Writer, totalPlaintextSize int64) error {
 	buf := make([]byte, CHUNK_SIZE+g.gcm.Overhead())
+
+	start := time.Now()
+	updated := time.Time{}
+	received := int64(0)
+	receivedPlain := int64(0)
+	receivedSinceLastUpdate := int64(0)
+
 	for {
 		n, err := io.ReadFull(r, buf)
 		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 			return fmt.Errorf("failed to read data: %w", err)
-		}
-
-		if n == 0 {
-			return nil
 		}
 
 		plaintext, err := g.decryptGCM(buf[:n])
@@ -121,7 +147,19 @@ func (g *GcmService) Decrypt(r io.Reader, w io.Writer) error {
 			return fmt.Errorf("failed to write data: %w", err)
 		}
 
-		if n < CHUNK_SIZE {
+		received += int64(n)
+		receivedPlain += int64(len(plaintext))
+		receivedSinceLastUpdate += int64(n)
+
+		if time.Since(updated) > time.Second {
+			progress := float64(receivedPlain) / float64(totalPlaintextSize) * 100
+			fmt.Printf("\r%.2f%% %.2f MB/s", progress, float64(receivedSinceLastUpdate)/1024/1024/time.Since(updated).Seconds())
+			updated = time.Now()
+			receivedSinceLastUpdate = 0
+		}
+
+		if receivedPlain >= totalPlaintextSize {
+			fmt.Printf("\r100%% %.2f MB/s\n", float64(received)/1024/1024/time.Since(start).Seconds())
 			return io.EOF
 		}
 	}
