@@ -11,7 +11,7 @@ import (
 )
 
 type ReceiveCommand struct {
-	Code string `short:"c" long:"code" description:"secret share code provided by sender"`
+	Code string `short:"c" long:"code" description:"share code provided by sender. If not specified, will prompt for code."`
 	File string `short:"f" long:"file" description:"file to write output to. if not specified, prints to stdout"`
 }
 
