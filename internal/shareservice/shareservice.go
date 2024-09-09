@@ -1,6 +1,7 @@
 package shareservice
 
 import (
+	"errors"
 	"io"
 	"net"
 	"strconv"
@@ -60,10 +61,12 @@ func (s *ShareService) Send(r io.Reader, es *encryptservice.GcmService) error {
 
 	defer conn.Close()
 
-	r2 := es.GetBufferEncryptor(r)
-	_, err = io.Copy(conn, r2)
+	err = es.Encrypt(r, conn)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
 
-	return err
+	return nil
 }
 
 func (s *ShareService) Receive(w io.Writer, es *encryptservice.GcmService) error {
@@ -74,8 +77,10 @@ func (s *ShareService) Receive(w io.Writer, es *encryptservice.GcmService) error
 
 	defer conn.Close()
 
-	r := es.NewBufferedDecryptor(conn)
+	err = es.Decrypt(conn, w)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
 
-	_, err = io.Copy(w, r)
-	return err
+	return nil
 }

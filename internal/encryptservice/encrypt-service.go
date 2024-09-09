@@ -1,7 +1,6 @@
 package encryptservice
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
@@ -51,16 +50,16 @@ func (s *GcmService) incrementNonce() {
 	}
 }
 
-func (s *GcmService) encryptGCM(data []byte, out []byte) ([]byte, error) {
-	cipherText := s.gcm.Seal(out[:0], s.nonce, data, []byte(s.discoverPhrase))
+func (s *GcmService) encryptGCM(data []byte) ([]byte, error) {
+	cipherText := s.gcm.Seal(data[:0], s.nonce, data, []byte(s.discoverPhrase))
 
 	s.incrementNonce()
 
 	return cipherText, nil
 }
 
-func (s *GcmService) decryptGCM(ciphertext []byte, buf []byte) ([]byte, error) {
-	plaintext, err := s.gcm.Open(buf[:0], s.nonce, ciphertext, []byte(s.discoverPhrase))
+func (s *GcmService) decryptGCM(ciphertext []byte) ([]byte, error) {
+	plaintext, err := s.gcm.Open(ciphertext[:0], s.nonce, ciphertext, []byte(s.discoverPhrase))
 	if err != nil {
 		return nil, err
 	}
@@ -72,83 +71,60 @@ func (s *GcmService) decryptGCM(ciphertext []byte, buf []byte) ([]byte, error) {
 
 const CHUNK_SIZE = 4096
 
-type BufferedEncryptor struct {
-	gcmService *GcmService
-	r          io.Reader
-	buf        *bytes.Buffer
-}
+func (g *GcmService) Encrypt(r io.Reader, w io.Writer) error {
+	buf := make([]byte, CHUNK_SIZE)
+	for {
+		n, err := io.ReadFull(r, buf)
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			return fmt.Errorf("failed to read data: %w", err)
+		}
 
-func (be *BufferedEncryptor) Read(buf []byte) (int, error) {
-	lastPacket := false
+		if n == 0 {
+			return nil
+		}
 
-	n, err := io.CopyN(be.buf, be.r, CHUNK_SIZE)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return int(n), fmt.Errorf("failed to read data: %w", err)
-	}
+		ciphertext, err := g.encryptGCM(buf[:n])
+		if err != nil {
+			return fmt.Errorf("failed to encrypt: %w", err)
+		}
 
-	if n < CHUNK_SIZE {
-		lastPacket = true
-	}
+		_, err = w.Write(ciphertext)
+		if err != nil {
+			return fmt.Errorf("failed to write data: %w", err)
+		}
 
-	ciphertext, err := be.gcmService.encryptGCM(be.buf.Bytes(), buf)
-	if err != nil {
-		return int(n), fmt.Errorf("failed to encrypt: %w", err)
-	}
-
-	be.buf.Reset()
-
-	read := len(ciphertext)
-
-	if lastPacket {
-		return read, io.EOF
-	}
-
-	return read, nil
-}
-
-func (s *GcmService) GetBufferEncryptor(r io.Reader) *BufferedEncryptor {
-	return &BufferedEncryptor{
-		gcmService: s,
-		r:          r,
-		buf:        bytes.NewBuffer(make([]byte, 0, CHUNK_SIZE)),
+		if n < CHUNK_SIZE {
+			return io.EOF
+		}
 	}
 }
 
-type BufferedDecryptor struct {
-	gcmService         *GcmService
-	r                  io.Reader
-	buf                *bytes.Buffer
-	encryptedChunkSize int
-}
+func (g *GcmService) Decrypt(r io.Reader, w io.Writer) error {
+	buf := make([]byte, CHUNK_SIZE+g.gcm.Overhead())
+	for {
+		n, err := io.ReadFull(r, buf)
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			return fmt.Errorf("failed to read data: %w", err)
+		}
 
-func (s *GcmService) NewBufferedDecryptor(r io.Reader) *BufferedDecryptor {
-	chunkSize := CHUNK_SIZE + s.gcm.Overhead()
-	return &BufferedDecryptor{
-		gcmService:         s,
-		r:                  r,
-		buf:                bytes.NewBuffer(make([]byte, 0, chunkSize)),
-		encryptedChunkSize: chunkSize,
+		if n == 0 {
+			return nil
+		}
+
+		plaintext, err := g.decryptGCM(buf[:n])
+		if err != nil {
+			return fmt.Errorf("failed to decrypt: %w", err)
+		}
+
+		_, err = w.Write(plaintext)
+		if err != nil {
+			return fmt.Errorf("failed to write data: %w", err)
+		}
+
+		if n < CHUNK_SIZE {
+			return io.EOF
+		}
 	}
-}
-
-func (bd *BufferedDecryptor) Read(buf []byte) (int, error) {
-	n, err := io.CopyN(bd.buf, bd.r, int64(bd.encryptedChunkSize))
-	if err != nil && !errors.Is(err, io.EOF) {
-		return int(n), err
-	}
-
-	plainText, err := bd.gcmService.decryptGCM(bd.buf.Bytes(), buf)
-	if err != nil {
-		return 0, err
-	}
-
-	bd.buf.Reset()
-
-	if n < int64(bd.encryptedChunkSize) {
-		return len(plainText), io.EOF
-	}
-
-	return len(plainText), nil
 }
 
 func Hmac512(data []byte, key []byte) []byte {
