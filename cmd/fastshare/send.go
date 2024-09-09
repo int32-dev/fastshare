@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/int32-dev/fastshare/internal/discoverservice"
+	"github.com/int32-dev/fastshare/internal/sharephrase"
 	"github.com/int32-dev/fastshare/internal/shareservice"
 )
 
@@ -28,8 +28,14 @@ func (s *SendCommand) Execute(args []string) error {
 		discoveryCode = getSecretCode()
 		fmt.Println("Waiting for receiver...")
 	} else {
-		discoveryCode = discoverservice.GetDiscoveryPhrase()
-		fmt.Println("share code: ", discoveryCode)
+		code, err := sharephrase.GetRandomPhrase()
+		if err != nil {
+			return err
+		}
+
+		discoveryCode = code
+
+		fmt.Println("share code:", discoveryCode)
 	}
 
 	ss, err := shareservice.NewLocalShareService(options.Port, discoveryCode)

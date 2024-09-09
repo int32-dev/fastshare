@@ -26,10 +26,6 @@ type DiscoverService struct {
 	once            *sync.Once
 }
 
-func GetDiscoveryPhrase() string {
-	return "discoveryphrase"
-}
-
 func NewDiscoveryService(pubKey *ecdh.PublicKey, discoveryPhrase string, port int) (*DiscoverService, error) {
 	sock, err := net.ListenPacket("udp4", ":"+strconv.Itoa((port)))
 	if err != nil {
