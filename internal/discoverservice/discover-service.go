@@ -3,6 +3,7 @@ package discoverservice
 import (
 	"bytes"
 	"crypto/ecdh"
+	"crypto/rand"
 	"fmt"
 	"net"
 	"strconv"
@@ -24,7 +25,12 @@ type DiscoverService struct {
 	message         []byte
 	stop            chan struct{}
 	once            *sync.Once
+	hmacService     *encryptservice.HmacService
 }
+
+const SALT_SIZE = 32
+const ECDH_SIZE = 32
+const HMAC_SIZE = 64
 
 func NewDiscoveryService(pubKey *ecdh.PublicKey, discoveryPhrase string, port int) (*DiscoverService, error) {
 	sock, err := net.ListenPacket("udp4", ":"+strconv.Itoa((port)))
@@ -32,9 +38,18 @@ func NewDiscoveryService(pubKey *ecdh.PublicKey, discoveryPhrase string, port in
 		return nil, err
 	}
 
-	mac := encryptservice.Hmac512(pubKey.Bytes(), []byte(discoveryPhrase))
+	hmacService := encryptservice.NewHmacService(discoveryPhrase)
+	salt := make([]byte, SALT_SIZE)
+	_, err = rand.Read(salt)
+	if err != nil {
+		return nil, err
+	}
 
-	message := pubKey.Bytes()
+	message := make([]byte, 0, ECDH_SIZE+SALT_SIZE+HMAC_SIZE)
+	pubkeyBytes := pubKey.Bytes()
+	mac := hmacService.Sign(pubkeyBytes, salt)
+	message = append(message, pubkeyBytes...)
+	message = append(message, salt...)
 	message = append(message, mac...)
 
 	return &DiscoverService{
@@ -42,6 +57,7 @@ func NewDiscoveryService(pubKey *ecdh.PublicKey, discoveryPhrase string, port in
 		port:            port,
 		sock:            sock,
 		message:         message,
+		hmacService:     hmacService,
 		stop:            make(chan struct{}),
 		once:            &sync.Once{},
 	}, nil
@@ -51,19 +67,20 @@ var ErrInvalidHmac = fmt.Errorf("invalid hmac")
 var ErrMessageTooShort = fmt.Errorf("message too short")
 
 func (s *DiscoverService) ParseMessage(message []byte) (*ecdh.PublicKey, error) {
-	if len(message) < 33 {
+	if len(message) < ECDH_SIZE+SALT_SIZE+HMAC_SIZE {
 		return nil, ErrMessageTooShort
 	}
 
-	key := message[:32]
-	hmac := message[32:]
+	pubKeyBytes := message[:ECDH_SIZE]
+	salt := message[ECDH_SIZE : ECDH_SIZE+SALT_SIZE]
+	sig := message[ECDH_SIZE+SALT_SIZE:]
 
-	pubkey, err := ecdh.X25519().NewPublicKey(key)
+	pubkey, err := ecdh.X25519().NewPublicKey(pubKeyBytes)
 	if err != nil {
 		return nil, err
 	}
 
-	if !bytes.Equal(hmac, encryptservice.Hmac512(pubkey.Bytes(), []byte(s.discoveryPhrase))) {
+	if !s.hmacService.Verify(pubkey.Bytes(), sig, salt) {
 		return nil, ErrInvalidHmac
 	}
 
@@ -84,7 +101,7 @@ func (s *DiscoverService) listenForMessage() (*DiscoverResponse, error) {
 			continue
 		}
 
-		if bytes.Equal(pkey.Bytes(), s.message[:32]) {
+		if bytes.Equal(pkey.Bytes(), s.message[:ECDH_SIZE]) {
 			// ignore self
 			continue
 		}

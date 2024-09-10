@@ -3,7 +3,6 @@ package shareservice
 import (
 	"bytes"
 	"crypto/ecdh"
-	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -24,12 +23,8 @@ type LocalShareService struct {
 	key       *ecdh.PrivateKey
 }
 
-func genKey() (*ecdh.PrivateKey, error) {
-	return ecdh.X25519().GenerateKey(rand.Reader)
-}
-
 func NewLocalShareService(port int, shareCode string) (*LocalShareService, error) {
-	key, err := genKey()
+	key, err := encryptservice.GenerateEcdhKeypair()
 	if err != nil {
 		return nil, err
 	}
@@ -115,12 +110,7 @@ func (s *LocalShareService) Send(r io.Reader, totalSize int64) error {
 }
 
 func (s *LocalShareService) Receive(w io.Writer) error {
-	key, err := genKey()
-	if err != nil {
-		return err
-	}
-
-	ds, err := discoverservice.NewDiscoveryService(key.PublicKey(), s.shareCode, s.port)
+	ds, err := discoverservice.NewDiscoveryService(s.key.PublicKey(), s.shareCode, s.port)
 	if err != nil {
 		return err
 	}
@@ -135,7 +125,7 @@ func (s *LocalShareService) Receive(w io.Writer) error {
 	fmt.Println("Sender found at", response.Addr)
 	ds.Close()
 
-	aeskey, err := encryptservice.GetKey(key, response.Key)
+	aeskey, err := encryptservice.GetKey(s.key, response.Key)
 	if err != nil {
 		return err
 	}

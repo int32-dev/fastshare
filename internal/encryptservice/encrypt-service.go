@@ -5,21 +5,33 @@ import (
 	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha512"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"time"
+
+	"golang.org/x/crypto/hkdf"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 type GcmService struct {
-	key            []byte
 	discoverPhrase string
 	gcm            cipher.AEAD
 	nonce          []byte
+	kdf            io.Reader
 }
 
-func NewGcmService(key []byte, discoverPhrase string) (*GcmService, error) {
+func NewGcmService(ecdhBytes []byte, discoverPhrase string) (*GcmService, error) {
+	kdf := hkdf.New(sha512.New, ecdhBytes, nil, []byte(discoverPhrase))
+	key := make([]byte, 32)
+	_, err := io.ReadFull(kdf, key)
+	if err != nil {
+		return nil, err
+	}
+
 	aes, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -33,10 +45,10 @@ func NewGcmService(key []byte, discoverPhrase string) (*GcmService, error) {
 	nonce := make([]byte, gcm.NonceSize())
 
 	return &GcmService{
-		key:            key,
 		discoverPhrase: discoverPhrase,
 		gcm:            gcm,
 		nonce:          nonce,
+		kdf:            kdf,
 	}, nil
 }
 
@@ -179,12 +191,40 @@ func (g *GcmService) Decrypt(r io.Reader, w io.Writer, totalPlaintextSize int64)
 	}
 }
 
-func Hmac512(data []byte, key []byte) []byte {
-	hash := hmac.New(sha512.New, key)
-	return hash.Sum(data)
+type HmacService struct {
+	shareCode string
+}
+
+const PBKDF_ITERATIONS = 100000
+
+func NewHmacService(shareCode string) *HmacService {
+	return &HmacService{
+		shareCode: shareCode,
+	}
+}
+
+func (h *HmacService) Sign(data, salt []byte) []byte {
+	key := pbkdf2.Key([]byte(h.shareCode), salt, PBKDF_ITERATIONS, 128, sha512.New)
+	signer := hmac.New(sha512.New, key)
+	signer.Write(data)
+	sig := signer.Sum(nil)
+	return sig
+}
+
+func (h *HmacService) Verify(data, signature, salt []byte) bool {
+	return hmac.Equal(h.Sign(data, salt), signature)
 }
 
 func GetKey(priKey *ecdh.PrivateKey, pubKey *ecdh.PublicKey) ([]byte, error) {
 	key, err := priKey.ECDH(pubKey)
 	return key, err
+}
+
+func ShareCodeHash(shareCode string) string {
+	hash := sha512.New().Sum([]byte(shareCode))
+	return base64.StdEncoding.EncodeToString(hash)
+}
+
+func GenerateEcdhKeypair() (*ecdh.PrivateKey, error) {
+	return ecdh.X25519().GenerateKey(rand.Reader)
 }

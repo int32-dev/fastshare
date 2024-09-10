@@ -43,11 +43,26 @@ func TestEncryptDecrypt(t *testing.T) {
 }
 
 func TestHmac(t *testing.T) {
-	data := Hmac512([]byte(TEST_STRING), []byte(TEST_DISCOVER_PHRASE))
+	salt := make([]byte, 16)
+	rand.Read(salt)
 
-	data2 := Hmac512([]byte(TEST_STRING), []byte(TEST_DISCOVER_PHRASE))
+	s1 := NewHmacService(TEST_DISCOVER_PHRASE)
+	s2 := NewHmacService(TEST_DISCOVER_PHRASE)
 
-	if !bytes.Equal(data, data2) {
+	sig1 := s1.Sign([]byte(TEST_STRING), salt)
+	sig2 := s2.Sign([]byte(TEST_STRING), salt)
+
+	sig12 := s1.Sign([]byte(TEST_STRING), salt)
+
+	if !bytes.Equal(sig1, sig2) {
 		t.Error("hmac values not equal")
+	}
+
+	if !bytes.Equal(sig1, sig12) {
+		t.Error("hmac values not equal")
+	}
+
+	if !s2.Verify([]byte(TEST_STRING), sig1, salt) {
+		t.Errorf("hmac verification failed %v %v %v", TEST_STRING, salt, sig1)
 	}
 }
