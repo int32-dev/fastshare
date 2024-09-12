@@ -2,16 +2,20 @@ package ws
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/coder/websocket"
 )
 
 const PUBKEY_HEADER = "X-FS-PUBKEY"
 const SALT_HEADER = "X-FS-SALT"
 const HMAC_HEADER = "X-FS-HMAC"
 const PAIRCODE_HEADER = "X-FS-PAIRCODE"
+const StatusTimeoutError = websocket.StatusCode(3000)
 
 type ClientInfo struct {
 	PubKey []byte
@@ -21,6 +25,33 @@ type ClientInfo struct {
 
 type ErrorMessage struct {
 	Error string
+}
+
+func ReadAndParseTextMessage(conn *websocket.Conn, route string, v interface{}) error {
+	msgType, message, err := conn.Read(context.Background())
+	if err != nil {
+		return err
+	}
+
+	if msgType != websocket.MessageText {
+		return fmt.Errorf("unexpected message type: %v", msgType)
+	}
+
+	messageRoute, data, err := ParseTextMessage(message)
+	if err != nil {
+		return err
+	}
+
+	if messageRoute != route {
+		return fmt.Errorf("unexpected message route: %s", messageRoute)
+	}
+
+	err = json.Unmarshal(data, v)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal data: %w", err)
+	}
+
+	return nil
 }
 
 func NewClientInfoFromHeaders(header http.Header) (*ClientInfo, error) {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -8,12 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/int32-dev/fastshare/internal/ws"
 	"github.com/jessevdk/go-flags"
 )
-
-var upgrader = websocket.Upgrader{}
 
 type Options struct {
 	Port int `short:"p" long:"port" default:"8080" description:"port to use for server"`
@@ -21,6 +21,7 @@ type Options struct {
 
 var options Options
 var parser = flags.NewParser(&options, flags.Default)
+var senderConLock = sync.Mutex{}
 var senderConnections = make(map[string]*SenderConnection)
 
 func main() {
@@ -42,16 +43,14 @@ func main() {
 
 func monitorConnections() {
 	for range time.Tick(time.Second * 5) {
-		fmt.Println("connections:", len(senderConnections))
 		for k, s := range senderConnections {
-			if time.Since(s.added) > expireTime && !s.receiverConnected {
-				err := s.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "timed out waiting for receiver"), time.Now().Add(time.Second*3))
+			if time.Since(s.added) > expireTime && !s.getReceiverConnected() {
+				err := s.conn.Close(ws.StatusTimeoutError, "timed out waiting for receiver")
 				if err != nil {
 					fmt.Println(err)
 				}
 
-				s.close()
-				delete(senderConnections, k)
+				deleteSenderConnection(k)
 				fmt.Println("sender expired:", k)
 				continue
 			}
@@ -68,18 +67,22 @@ func errorMiddleware(next func(w http.ResponseWriter, r *http.Request) error) fu
 	})
 }
 
+func deleteSenderConnection(paircode string) {
+	senderConLock.Lock()
+	defer senderConLock.Unlock()
+	conn, ok := senderConnections[paircode]
+	if ok {
+		delete(senderConnections, paircode)
+		conn.conn.Close(websocket.StatusAbnormalClosure, "")
+	}
+}
+
 type SenderConnection struct {
 	info              *ws.ClientInfo
 	conn              *websocket.Conn
-	once              *sync.Once
+	m                 sync.Mutex
 	receiverConnected bool
 	added             time.Time
-}
-
-func (s *SenderConnection) close() {
-	s.once.Do(func() {
-		s.conn.Close()
-	})
 }
 
 const expireTime = time.Minute * 2
@@ -88,7 +91,6 @@ func newSenderConn(info *ws.ClientInfo, conn *websocket.Conn) *SenderConnection 
 	return &SenderConnection{
 		info:              info,
 		conn:              conn,
-		once:              &sync.Once{},
 		receiverConnected: false,
 		added:             time.Now(),
 	}
@@ -105,24 +107,12 @@ func handleWsConnect(w http.ResponseWriter, r *http.Request) error {
 
 	if paircode == "" {
 		paircode = getNewPairCode()
-		header := http.Header{}
-		header.Add(ws.PAIRCODE_HEADER, paircode)
-
-		conn, err := upgrader.Upgrade(w, r, header)
+		w.Header().Add(ws.PAIRCODE_HEADER, paircode)
+		acceptOptions := &websocket.AcceptOptions{}
+		conn, err := websocket.Accept(w, r, acceptOptions)
 		if err != nil {
 			return err
 		}
-
-		conn.SetCloseHandler(func(code int, text string) error {
-			sender, ok := senderConnections[paircode]
-			if !ok {
-				return nil
-			}
-
-			sender.close()
-			delete(senderConnections, paircode)
-			return nil
-		})
 
 		senderConnections[paircode] = newSenderConn(clientInfo, conn)
 	} else {
@@ -132,23 +122,38 @@ func handleWsConnect(w http.ResponseWriter, r *http.Request) error {
 			return fmt.Errorf("no sender found")
 		}
 
-		sender.receiverConnected = true
+		sender.updateReceiverConnected(true)
+		defer sender.updateReceiverConnected(false)
+		defer deleteSenderConnection(paircode)
 
-		header := http.Header{}
-		sender.info.AddToHeaders(header)
-		conn, err := upgrader.Upgrade(w, r, header)
+		sender.info.AddToHeaders(w.Header())
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
 		if err != nil {
 			return err
 		}
 
-		defer conn.Close()
-		defer sender.close()
-		defer delete(senderConnections, paircode)
-		go pump(sender.conn, conn)
-		pump(conn, sender.conn)
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			pump(ctx, sender.conn, conn)
+			cancel()
+		}()
+		pump(ctx, conn, sender.conn)
+		cancel()
 	}
 
 	return nil
+}
+
+func (s *SenderConnection) updateReceiverConnected(connected bool) {
+	s.m.Lock()
+	defer s.m.Unlock()
+	s.receiverConnected = connected
+}
+
+func (s *SenderConnection) getReceiverConnected() bool {
+	s.m.Lock()
+	defer s.m.Unlock()
+	return s.receiverConnected
 }
 
 func getNewPairCode() string {
@@ -160,31 +165,34 @@ func getNewPairCode() string {
 	}
 }
 
-func pump(r *websocket.Conn, s *websocket.Conn) {
+func pump(ctx context.Context, r *websocket.Conn, s *websocket.Conn) {
 	for {
-		msgType, message, err := s.ReadMessage()
+		msgType, message, err := s.Read(ctx)
 		if err != nil {
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-				r.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second*3))
-			}
+			if closeStatus := websocket.CloseStatus(err); closeStatus > 0 {
+				err = r.Close(closeStatus, string(message))
+				if err != nil {
+					fmt.Printf("error closing connection: %v\n", err)
+				}
 
-			if websocket.IsCloseError(err, websocket.CloseAbnormalClosure) {
-				r.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseAbnormalClosure, ""), time.Now().Add(time.Second*3))
-			}
-
-			return
-		}
-
-		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
-			err = r.WriteMessage(msgType, message)
-			if err != nil {
 				return
 			}
+
+			if errors.Is(err, context.Canceled) {
+				fmt.Println("context canceled")
+				r.Close(websocket.StatusNormalClosure, "")
+			}
+
+			fmt.Println("pump:", err)
+			return
 		}
 
-		if msgType == websocket.CloseMessage {
-			r.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second*3))
-			return
+		if msgType == websocket.MessageText || msgType == websocket.MessageBinary {
+			err := r.Write(ctx, msgType, message)
+			if err != nil {
+				fmt.Println("error writing:", err)
+				return
+			}
 		}
 	}
 }

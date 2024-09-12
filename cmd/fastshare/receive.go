@@ -46,7 +46,14 @@ func (rc *ReceiveCommand) Execute(args []string) error {
 	}
 
 	if options.Web != "" {
-		err := ws.Receive(receiveCommand.Code, options.Web, w)
+		url := options.Web + "/ws"
+		if options.Insecure {
+			url = "ws://" + url
+		} else {
+			url = "wss://" + url
+		}
+
+		err := ws.Receive(receiveCommand.Code, url, w)
 		if err != nil {
 			return err
 		}

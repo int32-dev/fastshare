@@ -10,8 +10,9 @@ import (
 )
 
 type Options struct {
-	Port int    `short:"p" long:"port" default:"65432" description:"port to use for sharing"`
-	Web  string `short:"w" long:"web" description:"web server to route share through (required if sending to web client)"`
+	Port     int    `short:"p" long:"port" default:"65432" description:"port to use for sharing"`
+	Web      string `short:"w" long:"web" description:"web server to route share through (required if sending to web client)"`
+	Insecure bool   `long:"insecure-ws" description:"use insecure websocket connection (no https)"`
 }
 
 var options Options

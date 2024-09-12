@@ -53,6 +53,13 @@ func (s *SendCommand) Execute(args []string) error {
 	}
 
 	if options.Web != "" {
+		url := options.Web + "/ws"
+		if options.Insecure {
+			url = "ws://" + url
+		} else {
+			url = "wss://" + url
+		}
+
 		if sendCommand.Code {
 			discoveryPhrase = getSecretCode()
 			fmt.Println("Waiting for receiver...")
@@ -65,7 +72,7 @@ func (s *SendCommand) Execute(args []string) error {
 			discoveryPhrase = code
 		}
 
-		return ws.Send(discoveryPhrase, options.Web, r, totalSize)
+		return ws.Send(discoveryPhrase, url, r, totalSize)
 	}
 
 	if sendCommand.Code {

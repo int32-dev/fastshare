@@ -1,15 +1,14 @@
 package ws
 
 import (
+	"context"
 	"crypto/ecdh"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/int32-dev/fastshare/internal/encryptservice"
 )
 
@@ -52,7 +51,10 @@ func NewWsReceiveHandler(sharePairCode string, url string) (*WsReceiveHandler, e
 	header := http.Header{}
 	info.AddToHeaders(header)
 	header.Add(PAIRCODE_HEADER, pairCode)
-	conn, response, err := websocket.DefaultDialer.Dial("ws://"+url+"/ws", header)
+	dialOpts := &websocket.DialOptions{
+		HTTPHeader: header,
+	}
+	conn, response, err := websocket.Dial(context.TODO(), url, dialOpts)
 	if err != nil {
 		if response != nil {
 			defer response.Body.Close()
@@ -63,7 +65,9 @@ func NewWsReceiveHandler(sharePairCode string, url string) (*WsReceiveHandler, e
 		return nil, err
 	}
 
-	response.Body.Close()
+	if response.Body != nil {
+		response.Body.Close()
+	}
 
 	senderInfo, err := NewClientInfoFromHeaders(response.Header)
 	if err != nil {
@@ -71,7 +75,7 @@ func NewWsReceiveHandler(sharePairCode string, url string) (*WsReceiveHandler, e
 	}
 
 	if !hmacService.Verify(senderInfo.PubKey, senderInfo.Hmac, senderInfo.Salt) {
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "invalid hmac"))
+		conn.Close(websocket.StatusProtocolError, "invalid hmac")
 		return nil, fmt.Errorf("invalid hmac")
 	}
 
@@ -87,7 +91,7 @@ func NewWsReceiveHandler(sharePairCode string, url string) (*WsReceiveHandler, e
 		return nil, err
 	}
 
-	err = conn.WriteMessage(websocket.TextMessage, msg)
+	err = conn.Write(context.TODO(), websocket.MessageText, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -102,10 +106,6 @@ func NewWsReceiveHandler(sharePairCode string, url string) (*WsReceiveHandler, e
 		gs:       gcmServ,
 		byteChan: make(chan []byte, 1),
 	}, nil
-}
-
-func (h *WsReceiveHandler) Close() {
-	h.conn.Close()
 }
 
 func (h *WsReceiveHandler) Read(p []byte) (int, error) {
@@ -124,7 +124,7 @@ func Receive(sharePairCode string, url string, w io.Writer) error {
 		return err
 	}
 
-	defer r.Close()
+	defer r.conn.Close(websocket.StatusProtocolError, "")
 
 	fmt.Println("waiting for sender response")
 
@@ -135,24 +135,21 @@ func Receive(sharePairCode string, url string, w io.Writer) error {
 
 	go func() {
 		for {
-			msgType, data, err := r.conn.ReadMessage()
+			msgType, data, err := r.conn.Read(context.TODO())
 			if err != nil {
-				if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-					fmt.Println("read pump:", err)
+				if status := websocket.CloseStatus(err); status > -1 {
+					if status != websocket.StatusNormalClosure {
+						fmt.Println("read pump:", err)
+					}
 				}
 
 				close(r.byteChan)
 				return
 			}
 
-			if msgType != websocket.BinaryMessage {
+			if msgType != websocket.MessageBinary {
 				fmt.Println("unexpected message type")
 				continue
-			}
-
-			if msgType == websocket.CloseMessage {
-				close(r.byteChan)
-				return
 			}
 
 			r.byteChan <- data
@@ -165,31 +162,14 @@ func Receive(sharePairCode string, url string, w io.Writer) error {
 		return err
 	}
 
-	r.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second*3))
+	r.conn.Close(websocket.StatusNormalClosure, "")
 
 	return nil
 }
 
 func (h *WsReceiveHandler) getSizeMessage() (int64, error) {
-	_, message, err := h.conn.ReadMessage()
-	if err != nil {
-		return 0, err
-	}
-
-	path, data, err := ParseTextMessage(message)
-	if err != nil {
-		return 0, err
-	}
-
-	if path != "size" {
-		return 0, fmt.Errorf("unexpected message")
-	}
-
 	var size int64
-	err = json.Unmarshal(data, &size)
-	if err != nil {
-		return 0, err
-	}
+	err := ReadAndParseTextMessage(h.conn, "size", &size)
 
-	return size, nil
+	return size, err
 }
