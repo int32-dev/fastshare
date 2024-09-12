@@ -1,0 +1,9 @@
+<label>Message:</label>
+<br />
+<input type="text" [(ngModel)]="data" />
+
+<button type="button" (click)="send()">Send</button>
+
+@if (this.sharePairCode()) {
+    <p>Share pair code: {{ sharePairCode() }}</p>
+}

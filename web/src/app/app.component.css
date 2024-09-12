@@ -1,0 +1,11 @@
+header {
+    width: 100%;
+    padding: 15px;
+    background-color: #333;
+    color: white;
+    font-size: 2rem;
+}
+
+main {
+    padding: 20px;
+}

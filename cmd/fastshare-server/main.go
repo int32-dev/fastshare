@@ -105,9 +105,13 @@ func handleWsConnect(w http.ResponseWriter, r *http.Request) error {
 
 	paircode := r.URL.Query().Get(ws.PaircodeQuery)
 
+	acceptOptions := &websocket.AcceptOptions{
+		OriginPatterns: []string{"localhost:*"},
+	}
+
 	if paircode == "" {
 		paircode = getNewPairCode()
-		conn, err := websocket.Accept(w, r, nil)
+		conn, err := websocket.Accept(w, r, acceptOptions)
 		if err != nil {
 			return err
 		}
@@ -132,7 +136,7 @@ func handleWsConnect(w http.ResponseWriter, r *http.Request) error {
 		defer sender.updateReceiverConnected(false)
 		defer deleteSenderConnection(paircode)
 
-		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
+		conn, err := websocket.Accept(w, r, acceptOptions)
 		if err != nil {
 			return err
 		}
