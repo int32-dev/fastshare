@@ -24,10 +24,27 @@ type GcmService struct {
 	kdf            io.Reader
 }
 
-func NewGcmService(ecdhBytes []byte, discoverPhrase string) (*GcmService, error) {
+const SALT_SIZE = 32
+
+func GenreateSalt() ([]byte, error) {
+	salt := make([]byte, SALT_SIZE)
+	_, err := rand.Read(salt)
+	if err != nil {
+		return nil, err
+	}
+
+	return salt, nil
+}
+
+func NewGcmService(priKey *ecdh.PrivateKey, pubKey *ecdh.PublicKey, discoverPhrase string) (*GcmService, error) {
+	ecdhBytes, err := priKey.ECDH(pubKey)
+	if err != nil {
+		return nil, err
+	}
+
 	kdf := hkdf.New(sha512.New, ecdhBytes, nil, []byte(discoverPhrase))
 	key := make([]byte, 32)
-	_, err := io.ReadFull(kdf, key)
+	_, err = io.ReadFull(kdf, key)
 	if err != nil {
 		return nil, err
 	}
@@ -212,12 +229,8 @@ func (h *HmacService) Sign(data, salt []byte) []byte {
 }
 
 func (h *HmacService) Verify(data, signature, salt []byte) bool {
-	return hmac.Equal(h.Sign(data, salt), signature)
-}
-
-func GetKey(priKey *ecdh.PrivateKey, pubKey *ecdh.PublicKey) ([]byte, error) {
-	key, err := priKey.ECDH(pubKey)
-	return key, err
+	sig := h.Sign(data, salt)
+	return hmac.Equal(sig, signature)
 }
 
 func ShareCodeHash(shareCode string) string {

@@ -56,12 +56,7 @@ func (s *LocalShareService) Send(r io.Reader, totalSize int64) error {
 
 	fmt.Println("Receiver found at", response.Addr)
 
-	aeskey, err := encryptservice.GetKey(s.key, response.Key)
-	if err != nil {
-		return err
-	}
-
-	es, err := encryptservice.NewGcmService(aeskey, s.shareCode)
+	es, err := encryptservice.NewGcmService(s.key, response.PublicKey, s.shareCode)
 	if err != nil {
 		return err
 	}
@@ -125,12 +120,7 @@ func (s *LocalShareService) Receive(w io.Writer) error {
 	fmt.Println("Sender found at", response.Addr)
 	ds.Close()
 
-	aeskey, err := encryptservice.GetKey(s.key, response.Key)
-	if err != nil {
-		return err
-	}
-
-	es, err := encryptservice.NewGcmService(aeskey, s.shareCode)
+	es, err := encryptservice.NewGcmService(s.key, response.PublicKey, s.shareCode)
 	if err != nil {
 		return err
 	}
