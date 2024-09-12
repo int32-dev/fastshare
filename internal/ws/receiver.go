@@ -162,7 +162,6 @@ func Receive(sharePairCode string, url string, w io.Writer) error {
 	err = r.gs.Decrypt(r, w, size)
 
 	if err != nil {
-		fmt.Println("decrypt error:", err)
 		return err
 	}
 

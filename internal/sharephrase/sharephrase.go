@@ -12,25 +12,26 @@ import (
 var fs embed.FS
 
 const NUM_WORDS = 7776
-const NUM_RANDOM_WORDS = 2
 
-func GetRandomPhrase() (string, error) {
+func GetRandomPhrase(numWords int, includeNums bool) (string, error) {
 	allWords, err := getAllWords()
 	if err != nil {
 		return "", err
 	}
 
 	builder := &strings.Builder{}
-	for range NUM_RANDOM_WORDS {
+	for range numWords {
 		_, err = builder.WriteString(getRandomWord(allWords))
 		if err != nil {
 			return "", err
 		}
 	}
 
-	_, err = builder.WriteString(strconv.Itoa(rand.Intn(1000)))
-	if err != nil {
-		return "", err
+	if includeNums {
+		_, err = builder.WriteString(strconv.Itoa(rand.Intn(1000)))
+		if err != nil {
+			return "", err
+		}
 	}
 
 	return builder.String(), nil

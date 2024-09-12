@@ -25,21 +25,7 @@ func init() {
 }
 
 func (s *SendCommand) Execute(args []string) error {
-	var discoveryCode string
-	if sendCommand.Code {
-		discoveryCode = getSecretCode()
-		fmt.Println("Waiting for receiver...")
-	} else {
-		code, err := sharephrase.GetRandomPhrase()
-		if err != nil {
-			return err
-		}
-
-		discoveryCode = code
-
-		fmt.Println("share code:", discoveryCode)
-	}
-
+	var discoveryPhrase string
 	var r io.Reader
 	var totalSize int64
 
@@ -67,10 +53,35 @@ func (s *SendCommand) Execute(args []string) error {
 	}
 
 	if options.Web != "" {
-		return ws.Send(discoveryCode, options.Web, r, totalSize)
+		if sendCommand.Code {
+			discoveryPhrase = getSecretCode()
+			fmt.Println("Waiting for receiver...")
+		} else {
+			code, err := sharephrase.GetRandomPhrase(3, false)
+			if err != nil {
+				return err
+			}
+
+			discoveryPhrase = code
+		}
+
+		return ws.Send(discoveryPhrase, options.Web, r, totalSize)
 	}
 
-	ss, err := shareservice.NewLocalShareService(options.Port, discoveryCode)
+	if sendCommand.Code {
+		discoveryPhrase = getSecretCode()
+		fmt.Println("Waiting for receiver...")
+	} else {
+		code, err := sharephrase.GetRandomPhrase(2, true)
+		if err != nil {
+			return err
+		}
+
+		discoveryPhrase = code
+	}
+
+	fmt.Println("share code:", discoveryPhrase)
+	ss, err := shareservice.NewLocalShareService(options.Port, discoveryPhrase)
 	if err != nil {
 		return err
 	}

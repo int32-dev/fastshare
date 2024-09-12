@@ -54,12 +54,16 @@ func NewWsSendHandler(shareCode string, url string) (*WsSenderHandler, error) {
 	response.Body.Close()
 
 	pairCode := response.Header.Get(PAIRCODE_HEADER)
-	fmt.Println("pair code:", pairCode)
+	fmt.Printf("share code: %s%s\n", shareCode, pairCode)
 	fmt.Println("waiting for receiver...")
 
 	msgType, message, err := conn.ReadMessage()
 	if err != nil {
-		return nil, err
+		if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+			return nil, fmt.Errorf("%s", err.(*websocket.CloseError).Text)
+		}
+
+		return nil, fmt.Errorf("error: %w", err)
 	}
 
 	if msgType != websocket.TextMessage {

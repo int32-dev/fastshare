@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
-
-	"github.com/gorilla/websocket"
 )
 
 const PUBKEY_HEADER = "X-FS-PUBKEY"
@@ -20,30 +17,6 @@ type ClientInfo struct {
 	PubKey []byte
 	Salt   []byte
 	Hmac   []byte
-}
-
-type SenderConnection struct {
-	Info              *ClientInfo
-	Conn              *websocket.Conn
-	done              chan struct{}
-	once              *sync.Once
-	ReceiverConnected bool
-}
-
-func (s *SenderConnection) Close() {
-	s.once.Do(func() {
-		close(s.done)
-	})
-}
-
-func NewSenderConn(info *ClientInfo, conn *websocket.Conn) *SenderConnection {
-	return &SenderConnection{
-		Info:              info,
-		Conn:              conn,
-		done:              make(chan struct{}),
-		once:              &sync.Once{},
-		ReceiverConnected: false,
-	}
 }
 
 type ErrorMessage struct {
