@@ -11,25 +11,34 @@ fastshare <command> <options>
 Commands:
 send OR s:
   options:
-  -f <filename>: file to send
-  -m <message>: message to send
-  -c: lets you enter your own "share code" (will be prompted to enter after hitting enter)
+  -f, --file <filename>: file to send
+  -m, --message <message>: message to send
+  -c, --code: lets you enter your own "share code" (will be prompted to enter after hitting enter)
   
-
-
-
 receive OR r: receive a file
   options:
-  -f <filename>: write output to a file instead of printing to stdout
-  -c <share code>: specify share code in args instead of being prompted for the share code.
+  -f, --file <filename>: write output to a file instead of printing to stdout
+  -c, --code <share code>: specify share code in args instead of being prompted for the share code.
 
 Generic Options:
 -p, --port: port to listen on for sharing (defaults to 65432)
+-w, --web <server address>: send using server websocket relay (must use to send to web client)
+--insecure-ws: use insecure websockets (ws:// instead of wss://)
 ```
+
+### Server Usage: **
+```bash
+fastshare-server <options>
+
+options:
+-p, --port <port>: port to listen on (defaults to 8080)
+```
+
+** You must run a server if you want to use the -w / --web option, or use web clients (coming soon!) It's recommended to put the server behind a reverse proxy with tls like nginx.
+
 
 ## Current Planned Features:
 - Web UI: plan is to create a separate fastshare-server command that you can run to host a simple webserver with a web ui that you can send files / messages on. This will expand the supported devices to pretty much anything that has a modern web browser.
-- Online Mode: Add the option to share through a web relay, so you can share with devices outside your local network, and so you can share from web ui -> terminal and terminal -> web ui.
 
 ## Building
 Make sure you have `make` and `go` installed, then run `make build-<platform>` (look in the make file for targets...) or run `make all` and run the appropriate file...
