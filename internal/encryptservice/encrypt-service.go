@@ -134,7 +134,7 @@ func (g *GcmService) Encrypt(r io.Reader, w io.Writer, totalPlaintextSize int64)
 		if totalPlaintextSize > 0 && time.Since(updated) > time.Second {
 			progress := float64(sent) / float64(totalPlaintextSize) * 100
 			fmt.Printf("\r%.2f%%", progress)
-			fmt.Printf(" %.2f MB/s", float64(sentSinceLastUpdate)/1024.0/1024.0/time.Since(updated).Seconds())
+			fmt.Printf(" %.2f MB/s    ", float64(sentSinceLastUpdate)/1024.0/1024.0/time.Since(updated).Seconds())
 
 			updated = time.Now()
 			sentSinceLastUpdate = 0
@@ -142,7 +142,7 @@ func (g *GcmService) Encrypt(r io.Reader, w io.Writer, totalPlaintextSize int64)
 
 		if sent >= totalPlaintextSize {
 			fmt.Printf("\r100.00%%")
-			fmt.Printf(" %.2f MB/s\n", float64(encSent)/1024.0/1024.0/time.Since(start).Seconds())
+			fmt.Printf(" %.2f MB/s  \n", float64(encSent)/1024.0/1024.0/time.Since(start).Seconds())
 
 			return nil
 		}
@@ -192,13 +192,13 @@ func (g *GcmService) Decrypt(r io.Reader, w io.Writer, totalPlaintextSize int64)
 
 		if time.Since(updated) > time.Second {
 			progress := float64(receivedPlain) / float64(totalPlaintextSize) * 100
-			fmt.Printf("\r%.2f%% %.2f MB/s", progress, float64(receivedSinceLastUpdate)/1024.0/1024.0/time.Since(updated).Seconds())
+			fmt.Printf("\r%.2f%% %.2f MB/s   ", progress, float64(receivedSinceLastUpdate)/1024.0/1024.0/time.Since(updated).Seconds())
 			updated = time.Now()
 			receivedSinceLastUpdate = 0
 		}
 
 		if receivedPlain >= totalPlaintextSize {
-			fmt.Printf("\r100%% %.2f MB/s\n", float64(received)/1024.0/1024.0/time.Since(start).Seconds())
+			fmt.Printf("\r100.00%% %.2f MB/s    \n", float64(received)/1024.0/1024.0/time.Since(start).Seconds())
 			return nil
 		}
 
@@ -239,5 +239,12 @@ func ShareCodeHash(shareCode string) string {
 }
 
 func GenerateEcdhKeypair() (*ecdh.PrivateKey, error) {
-	return ecdh.X25519().GenerateKey(rand.Reader)
+	return ecdh.P256().GenerateKey(rand.Reader)
+}
+
+// 65 for P-256, 32 for X25519
+const ECDH_PUBKEY_SIZE = 65
+
+func ParsePublicKey(pubKey []byte) (*ecdh.PublicKey, error) {
+	return ecdh.P256().NewPublicKey(pubKey)
 }

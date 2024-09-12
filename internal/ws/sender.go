@@ -2,10 +2,9 @@ package ws
 
 import (
 	"context"
-	"crypto/ecdh"
 	"fmt"
 	"io"
-	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/coder/websocket"
@@ -17,7 +16,7 @@ type WsSenderHandler struct {
 	gs   *encryptservice.GcmService
 }
 
-func NewWsSendHandler(shareCode string, url string) (*WsSenderHandler, error) {
+func NewWsSendHandler(shareCode string, addr string) (*WsSenderHandler, error) {
 	keyPair, err := encryptservice.GenerateEcdhKeypair()
 	if err != nil {
 		return nil, err
@@ -35,15 +34,17 @@ func NewWsSendHandler(shareCode string, url string) (*WsSenderHandler, error) {
 		Hmac:   hmac.Sign(keyPair.PublicKey().Bytes(), salt),
 	}
 
-	header := http.Header{}
+	query := url.Values{}
+	info.AddToQuery(query)
 
-	info.AddToHeaders(header)
-	dialOpts := &websocket.DialOptions{}
-	dialOpts.HTTPHeader = header
-	conn, response, err := websocket.Dial(context.Background(), url, dialOpts)
+	uri, err := url.Parse(addr + "?" + query.Encode())
+	if err != nil {
+		return nil, err
+	}
+
+	conn, response, err := websocket.Dial(context.Background(), uri.String(), nil)
 	if err != nil {
 		if response != nil {
-			defer response.Body.Close()
 			fmt.Println(response.Status)
 			io.Copy(os.Stdout, response.Body)
 		}
@@ -51,11 +52,13 @@ func NewWsSendHandler(shareCode string, url string) (*WsSenderHandler, error) {
 		return nil, err
 	}
 
-	if response.Body != nil {
-		response.Body.Close()
+	var pairCode string
+	err = ReadAndParseTextMessage(conn, "pairCode", &pairCode)
+	if err != nil {
+		conn.Close(websocket.StatusProtocolError, "")
+		return nil, err
 	}
 
-	pairCode := response.Header.Get(PAIRCODE_HEADER)
 	fmt.Printf("share code: %s%s\n", shareCode, pairCode)
 	fmt.Println("waiting for receiver...")
 
@@ -76,7 +79,7 @@ func NewWsSendHandler(shareCode string, url string) (*WsSenderHandler, error) {
 		return nil, fmt.Errorf("invalid hmac")
 	}
 
-	pubKey, err := ecdh.X25519().NewPublicKey(receiverInfo.PubKey)
+	pubKey, err := encryptservice.ParsePublicKey(receiverInfo.PubKey)
 	if err != nil {
 		return nil, err
 	}

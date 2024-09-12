@@ -2,7 +2,9 @@ package encryptservice
 
 import (
 	"bytes"
+	"crypto/ecdh"
 	"crypto/rand"
+	"encoding/base64"
 	"testing"
 )
 
@@ -72,4 +74,15 @@ func TestHmac(t *testing.T) {
 	if !s2.Verify([]byte(TEST_STRING), sig1, salt) {
 		t.Errorf("hmac verification failed %v %v %v", TEST_STRING, salt, sig1)
 	}
+}
+
+func TestCreateP256(t *testing.T) {
+	key, err := ecdh.P256().GenerateKey(rand.Reader)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	t.Log("length pubkey: ", len(key.PublicKey().Bytes()))
+	t.Log("pubkey: ", base64.StdEncoding.EncodeToString(key.PublicKey().Bytes()))
 }

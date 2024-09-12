@@ -27,8 +27,8 @@ type DiscoverService struct {
 	hmacService     *encryptservice.HmacService
 }
 
-const ECDH_SIZE = 32
 const HMAC_SIZE = 64
+const ECDH_SIZE = encryptservice.ECDH_PUBKEY_SIZE
 
 func NewDiscoveryService(pubKey *ecdh.PublicKey, discoveryPhrase string, port int) (*DiscoverService, error) {
 	sock, err := net.ListenPacket("udp4", ":"+strconv.Itoa((port)))
@@ -72,7 +72,7 @@ func (s *DiscoverService) ParseMessage(message []byte) (*ecdh.PublicKey, error) 
 	salt := message[ECDH_SIZE : ECDH_SIZE+encryptservice.SALT_SIZE]
 	sig := message[ECDH_SIZE+encryptservice.SALT_SIZE:]
 
-	pubkey, err := ecdh.X25519().NewPublicKey(pubKeyBytes)
+	pubkey, err := encryptservice.ParsePublicKey(pubKeyBytes)
 	if err != nil {
 		return nil, err
 	}

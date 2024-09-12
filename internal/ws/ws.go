@@ -6,15 +6,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"net/url"
 
 	"github.com/coder/websocket"
 )
 
-const PUBKEY_HEADER = "X-FS-PUBKEY"
-const SALT_HEADER = "X-FS-SALT"
-const HMAC_HEADER = "X-FS-HMAC"
-const PAIRCODE_HEADER = "X-FS-PAIRCODE"
+const PubkeyQuery = "pubkey"
+const SaltQuery = "salt"
+const HmacQuery = "hmac"
+const PaircodeQuery = "paircode"
 const StatusTimeoutError = websocket.StatusCode(3000)
 
 type ClientInfo struct {
@@ -54,24 +54,24 @@ func ReadAndParseTextMessage(conn *websocket.Conn, route string, v interface{}) 
 	return nil
 }
 
-func NewClientInfoFromHeaders(header http.Header) (*ClientInfo, error) {
-	return parseHeaders(header)
+func NewClientInfoFromQueryString(query url.Values) (*ClientInfo, error) {
+	return parseHeaders(query)
 }
 
-func (info *ClientInfo) AddToHeaders(header http.Header) {
-	addHeaders(header, info)
+func (info *ClientInfo) AddToQuery(query url.Values) {
+	addQueryParams(query, info)
 }
 
-func addHeaders(header http.Header, info *ClientInfo) {
-	header.Add(PUBKEY_HEADER, base64.StdEncoding.EncodeToString(info.PubKey))
-	header.Add(SALT_HEADER, base64.StdEncoding.EncodeToString(info.Salt))
-	header.Add(HMAC_HEADER, base64.StdEncoding.EncodeToString(info.Hmac))
+func addQueryParams(query url.Values, info *ClientInfo) {
+	query.Add(PubkeyQuery, base64.StdEncoding.EncodeToString(info.PubKey))
+	query.Add(SaltQuery, base64.StdEncoding.EncodeToString(info.Salt))
+	query.Add(HmacQuery, base64.StdEncoding.EncodeToString(info.Hmac))
 }
 
-func parseHeaders(header http.Header) (*ClientInfo, error) {
-	pubkey := header.Get(PUBKEY_HEADER)
-	salt := header.Get(SALT_HEADER)
-	hmac := header.Get(HMAC_HEADER)
+func parseHeaders(query url.Values) (*ClientInfo, error) {
+	pubkey := query.Get(PubkeyQuery)
+	salt := query.Get(SaltQuery)
+	hmac := query.Get(HmacQuery)
 
 	if pubkey == "" || salt == "" || hmac == "" {
 		return nil, fmt.Errorf("missing headers")

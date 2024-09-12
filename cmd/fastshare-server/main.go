@@ -97,22 +97,28 @@ func newSenderConn(info *ws.ClientInfo, conn *websocket.Conn) *SenderConnection 
 }
 
 func handleWsConnect(w http.ResponseWriter, r *http.Request) error {
-	clientInfo, err := ws.NewClientInfoFromHeaders(r.Header)
+	clientInfo, err := ws.NewClientInfoFromQueryString(r.URL.Query())
 	if err != nil {
 		http.Error(w, "error parsing headers", http.StatusBadRequest)
 		return err
 	}
 
-	paircode := r.Header.Get(ws.PAIRCODE_HEADER)
+	paircode := r.URL.Query().Get(ws.PaircodeQuery)
 
 	if paircode == "" {
 		paircode = getNewPairCode()
-		w.Header().Add(ws.PAIRCODE_HEADER, paircode)
-		acceptOptions := &websocket.AcceptOptions{}
-		conn, err := websocket.Accept(w, r, acceptOptions)
+		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return err
 		}
+
+		msg, err := ws.GetJsonMessageBytes("pairCode", paircode)
+		if err != nil {
+			conn.CloseNow()
+			return err
+		}
+
+		conn.Write(context.Background(), websocket.MessageText, msg)
 
 		senderConnections[paircode] = newSenderConn(clientInfo, conn)
 	} else {
@@ -126,8 +132,17 @@ func handleWsConnect(w http.ResponseWriter, r *http.Request) error {
 		defer sender.updateReceiverConnected(false)
 		defer deleteSenderConnection(paircode)
 
-		sender.info.AddToHeaders(w.Header())
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
+		if err != nil {
+			return err
+		}
+
+		msg, err := ws.GetJsonMessageBytes("senderInfo", sender.info)
+		if err != nil {
+			return err
+		}
+
+		err = conn.Write(context.Background(), websocket.MessageText, msg)
 		if err != nil {
 			return err
 		}

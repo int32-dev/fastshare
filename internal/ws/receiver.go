@@ -2,10 +2,9 @@ package ws
 
 import (
 	"context"
-	"crypto/ecdh"
 	"fmt"
 	"io"
-	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/coder/websocket"
@@ -20,7 +19,7 @@ type WsReceiveHandler struct {
 	byteChan chan []byte
 }
 
-func NewWsReceiveHandler(sharePairCode string, url string) (*WsReceiveHandler, error) {
+func NewWsReceiveHandler(sharePairCode string, addr string) (*WsReceiveHandler, error) {
 	codeLen := len(sharePairCode)
 
 	if len(sharePairCode) < PAIR_CODE_LEN {
@@ -48,16 +47,18 @@ func NewWsReceiveHandler(sharePairCode string, url string) (*WsReceiveHandler, e
 		Hmac:   hmacService.Sign(keyPair.PublicKey().Bytes(), salt),
 	}
 
-	header := http.Header{}
-	info.AddToHeaders(header)
-	header.Add(PAIRCODE_HEADER, pairCode)
-	dialOpts := &websocket.DialOptions{
-		HTTPHeader: header,
+	query := url.Values{}
+	info.AddToQuery(query)
+	query.Add(PaircodeQuery, pairCode)
+
+	uri, err := url.Parse(addr + "?" + query.Encode())
+	if err != nil {
+		return nil, err
 	}
-	conn, response, err := websocket.Dial(context.TODO(), url, dialOpts)
+
+	conn, response, err := websocket.Dial(context.TODO(), uri.String(), nil)
 	if err != nil {
 		if response != nil {
-			defer response.Body.Close()
 			fmt.Println(response.Status)
 			io.Copy(os.Stdout, response.Body)
 		}
@@ -65,11 +66,8 @@ func NewWsReceiveHandler(sharePairCode string, url string) (*WsReceiveHandler, e
 		return nil, err
 	}
 
-	if response.Body != nil {
-		response.Body.Close()
-	}
-
-	senderInfo, err := NewClientInfoFromHeaders(response.Header)
+	senderInfo := &ClientInfo{}
+	err = ReadAndParseTextMessage(conn, "senderInfo", senderInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +77,7 @@ func NewWsReceiveHandler(sharePairCode string, url string) (*WsReceiveHandler, e
 		return nil, fmt.Errorf("invalid hmac")
 	}
 
-	pubKey, err := ecdh.X25519().NewPublicKey(senderInfo.PubKey)
+	pubKey, err := encryptservice.ParsePublicKey(senderInfo.PubKey)
 	if err != nil {
 		return nil, err
 	}
