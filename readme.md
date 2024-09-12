@@ -4,6 +4,8 @@ Fastshare is a simple and secure application for securely sharing files between 
 
 Currently, the only supported sharing method is cli -> cli on a local network. Clients will use UDP Broadcast messages to discover each other automatically, and then initiate the transfer.
 
+## NOTE: Versions under 1.0 are NOT compatible with eachother. You must use matching versions.
+
 ### CLI Usage:
 ```bash
 fastshare <command> <options>
