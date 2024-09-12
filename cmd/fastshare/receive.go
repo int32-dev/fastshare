@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/int32-dev/fastshare/internal/shareservice"
+	"github.com/int32-dev/fastshare/internal/ws"
 )
 
 type ReceiveCommand struct {
@@ -26,12 +28,11 @@ func (rc *ReceiveCommand) Execute(args []string) error {
 		fmt.Println("Waiting for sender...")
 	}
 
-	ss, err := shareservice.NewLocalShareService(options.Port, receiveCommand.Code)
-	if err != nil {
-		return err
-	}
+	var w io.Writer
 
+	printOutput := true
 	if receiveCommand.File != "" {
+		printOutput = false
 		file, err := os.OpenFile(receiveCommand.File, os.O_CREATE|os.O_RDWR, 0644)
 		if err != nil {
 			return err
@@ -39,20 +40,31 @@ func (rc *ReceiveCommand) Execute(args []string) error {
 
 		defer file.Close()
 
-		err = ss.Receive(file)
+		w = file
+	} else {
+		w = bytes.NewBuffer(make([]byte, 0, 4096))
+	}
+
+	if options.Web != "" {
+		err := ws.Receive(receiveCommand.Code, options.Web, w)
 		if err != nil {
 			return err
 		}
 	} else {
-		dat := bytes.NewBuffer(make([]byte, 0, 4096))
-
-		err = ss.Receive(dat)
+		ss, err := shareservice.NewLocalShareService(options.Port, receiveCommand.Code)
 		if err != nil {
 			return err
 		}
 
+		err = ss.Receive(w)
+		if err != nil {
+			return err
+		}
+	}
+
+	if printOutput {
 		fmt.Println("Received data:")
-		fmt.Printf("%s\n", dat.String())
+		fmt.Printf("%s\n", w.(*bytes.Buffer).String())
 	}
 
 	return nil

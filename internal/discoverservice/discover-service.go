@@ -3,7 +3,6 @@ package discoverservice
 import (
 	"bytes"
 	"crypto/ecdh"
-	"crypto/rand"
 	"fmt"
 	"net"
 	"strconv"
@@ -14,8 +13,8 @@ import (
 )
 
 type DiscoverResponse struct {
-	Addr net.Addr
-	Key  *ecdh.PublicKey
+	Addr      net.Addr
+	PublicKey *ecdh.PublicKey
 }
 
 type DiscoverService struct {
@@ -28,7 +27,6 @@ type DiscoverService struct {
 	hmacService     *encryptservice.HmacService
 }
 
-const SALT_SIZE = 32
 const ECDH_SIZE = 32
 const HMAC_SIZE = 64
 
@@ -39,13 +37,12 @@ func NewDiscoveryService(pubKey *ecdh.PublicKey, discoveryPhrase string, port in
 	}
 
 	hmacService := encryptservice.NewHmacService(discoveryPhrase)
-	salt := make([]byte, SALT_SIZE)
-	_, err = rand.Read(salt)
+	salt, err := encryptservice.GenreateSalt()
 	if err != nil {
 		return nil, err
 	}
 
-	message := make([]byte, 0, ECDH_SIZE+SALT_SIZE+HMAC_SIZE)
+	message := make([]byte, 0, ECDH_SIZE+encryptservice.SALT_SIZE+HMAC_SIZE)
 	pubkeyBytes := pubKey.Bytes()
 	mac := hmacService.Sign(pubkeyBytes, salt)
 	message = append(message, pubkeyBytes...)
@@ -67,13 +64,13 @@ var ErrInvalidHmac = fmt.Errorf("invalid hmac")
 var ErrMessageTooShort = fmt.Errorf("message too short")
 
 func (s *DiscoverService) ParseMessage(message []byte) (*ecdh.PublicKey, error) {
-	if len(message) < ECDH_SIZE+SALT_SIZE+HMAC_SIZE {
+	if len(message) < ECDH_SIZE+encryptservice.SALT_SIZE+HMAC_SIZE {
 		return nil, ErrMessageTooShort
 	}
 
 	pubKeyBytes := message[:ECDH_SIZE]
-	salt := message[ECDH_SIZE : ECDH_SIZE+SALT_SIZE]
-	sig := message[ECDH_SIZE+SALT_SIZE:]
+	salt := message[ECDH_SIZE : ECDH_SIZE+encryptservice.SALT_SIZE]
+	sig := message[ECDH_SIZE+encryptservice.SALT_SIZE:]
 
 	pubkey, err := ecdh.X25519().NewPublicKey(pubKeyBytes)
 	if err != nil {
@@ -107,8 +104,8 @@ func (s *DiscoverService) listenForMessage() (*DiscoverResponse, error) {
 		}
 
 		return &DiscoverResponse{
-			Addr: addr,
-			Key:  pkey,
+			Addr:      addr,
+			PublicKey: pkey,
 		}, nil
 	}
 }

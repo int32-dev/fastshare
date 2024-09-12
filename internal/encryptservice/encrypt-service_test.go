@@ -10,17 +10,24 @@ const TEST_STRING = "This is my string... Does it match?"
 const TEST_DISCOVER_PHRASE = "bluepenguin23"
 
 func TestEncryptDecrypt(t *testing.T) {
-	key := make([]byte, 16)
-	rand.Read(key)
-
-	data := []byte(TEST_STRING)
-
-	encryptService, err := NewGcmService(key, TEST_DISCOVER_PHRASE)
+	ecdh1, err := GenerateEcdhKeypair()
 	if err != nil {
 		t.Error(err)
 	}
 
-	decryptService, err := NewGcmService(key, TEST_DISCOVER_PHRASE)
+	ecdh2, err := GenerateEcdhKeypair()
+	if err != nil {
+		t.Error(err)
+	}
+
+	data := []byte(TEST_STRING)
+
+	encryptService, err := NewGcmService(ecdh1, ecdh2.PublicKey(), TEST_DISCOVER_PHRASE)
+	if err != nil {
+		t.Error(err)
+	}
+
+	decryptService, err := NewGcmService(ecdh2, ecdh1.PublicKey(), TEST_DISCOVER_PHRASE)
 	if err != nil {
 		t.Error(err)
 	}
