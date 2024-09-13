@@ -4,6 +4,7 @@ import { EncryptionService } from '../services/encryption.service';
 import { WebsocketJsonMessage } from '../util/websocket/websocket-json-message';
 import { ClientInfo } from '../util/websocket/websocket';
 import { RouterLink } from '@angular/router';
+import { UrlHelper } from '../util/url-helper';
 
 const PAIR_CODE_LENGTH = 4;
 
@@ -36,36 +37,15 @@ export class ReceiveComponent {
 
     console.log('Receiving data...');
 
-    const params = new URLSearchParams();
 
-    const keypair = await this.encryptionService.getKeyPair();
-    const pubKeyBytes = await this.encryptionService.getPubKeyBytes(keypair);
-    const pubKey = this.encryptionService.toBase64(pubKeyBytes);
-    params.append('pubkey', pubKey);
-
-    const saltBytes = this.encryptionService.getRandomSalt();
-    const salt = this.encryptionService.toBase64(saltBytes);
-    params.append('salt', salt);
-
-    const signature = await this.encryptionService.sign(
-      shareCode,
-      pubKeyBytes,
-      saltBytes
-    );
-
-    const hmac = this.encryptionService.toBase64(signature);
-    params.append('hmac', hmac);
+    const encryptionInfo = await this.encryptionService.getInfo();
+    const params = await this.encryptionService.getQueryParams(shareCode);
 
     params.append('paircode', pairCode);
 
     console.log(params.toString());
 
-    const uri = new URL(window.location.href);
-    uri.protocol = window.location.protocol == 'https:' ? 'wss' : 'ws';
-    uri.hostname = window.location.hostname;
-    uri.port = window.location.port == '4200' ? '8080' : window.location.port;
-    uri.pathname = '/ws';
-    uri.search = params.toString();
+    const uri = UrlHelper.buildUrl(params);
 
     let gotSenderInfo = false;
     let gotSize = false;
@@ -162,15 +142,15 @@ export class ReceiveComponent {
         ws.send(
           'receiverInfo\n' +
             JSON.stringify(<ClientInfo>{
-              PubKey: this.encryptionService.toBase64(pubKeyBytes),
-              Salt: salt,
-              Hmac: this.encryptionService.toBase64(signature),
+              PubKey: params.get('pubkey'),
+              Salt: params.get('salt'),
+              Hmac: params.get('hmac'),
             })
         );
 
         aesKey = await this.encryptionService.getAesKey(
           shareCode,
-          keypair,
+          encryptionInfo.keyPair,
           spubKey
         );
 
@@ -192,14 +172,11 @@ export class ReceiveComponent {
           size + Math.ceil(size / chunk_size) * aead_overhead
         );
 
-        console.log('enc buf size', encryptedData.byteLength);
         gotSize = true;
         return;
       }
 
       try {
-        console.log('Receiving data chunk');
-
         const arrData = await event.data.arrayBuffer();
         const data = new Uint8Array(arrData);
 
@@ -208,6 +185,7 @@ export class ReceiveComponent {
         offset += data.byteLength;
       } catch (e) {
         console.error(e);
+        ws.close(1002);
       }
     };
   }

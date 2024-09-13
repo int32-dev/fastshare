@@ -1,10 +1,57 @@
 import { Injectable } from '@angular/core';
+import { ClientInfo } from '../util/websocket/websocket';
 
-@Injectable({
-  providedIn: 'root',
-})
+export class EncryptionInfo {
+  public keyPair: CryptoKeyPair;
+  public pubKeyBytes: ArrayBuffer;
+  public salt: Uint8Array;
+
+  private constructor(keyPair: CryptoKeyPair, pubKeyBytes: ArrayBuffer, salt: Uint8Array) {
+    this.keyPair = keyPair;
+    this.pubKeyBytes = pubKeyBytes;
+    this.salt = salt;
+  }
+
+  public static async create(encryptionService: EncryptionService): Promise<EncryptionInfo> {
+    const keyPair = await encryptionService.getKeyPair();
+    const pubKeyBytes = await encryptionService.getPubKeyBytes(keyPair);
+    const salt = encryptionService.getRandomSalt();
+
+    return new EncryptionInfo(keyPair, pubKeyBytes, salt);
+  }
+}
+
+@Injectable()
 export class EncryptionService {
-  constructor() {}
+  private info: EncryptionInfo | null = null;
+
+  constructor() { 
+  }
+
+  public async getQueryParams(shareCode: string): Promise<URLSearchParams> {
+    const encryptionInfo = await this.getInfo();
+    const params = new URLSearchParams();
+    params.append('pubkey', this.toBase64(encryptionInfo.pubKeyBytes));
+    params.append('salt', this.toBase64(encryptionInfo.salt));
+
+    const signature = await this.sign(
+      shareCode,
+      encryptionInfo.pubKeyBytes,
+      encryptionInfo.salt
+    );
+
+    params.append('hmac', this.toBase64(signature));
+
+    return params;
+  }
+
+  public async getInfo(): Promise<EncryptionInfo> {
+    if (this.info == null) {
+      this.info = await EncryptionInfo.create(this);
+    }
+
+    return this.info;
+  }
 
   public async getKeyPair(): Promise<CryptoKeyPair> {
     const key = await window.crypto.subtle.generateKey(

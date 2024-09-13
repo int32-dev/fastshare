@@ -4,6 +4,7 @@ import { EncryptionService } from '../services/encryption.service';
 import { SharecodeService } from '../sharecode.service';
 import { WebsocketJsonMessage } from '../util/websocket/websocket-json-message';
 import { ClientInfo } from '../util/websocket/websocket';
+import { UrlHelper } from '../util/url-helper';
 
 @Component({
   selector: 'app-send',
@@ -11,6 +12,7 @@ import { ClientInfo } from '../util/websocket/websocket';
   imports: [FormsModule],
   templateUrl: './send.component.html',
   styleUrl: './send.component.css',
+  providers: [EncryptionService],
 })
 export class SendComponent {
   public data = signal('');
@@ -23,31 +25,12 @@ export class SendComponent {
 
   public async send() {
     const shareCode = this.sharecodeService.getShareCode();
-    const keypair = await this.encryptionService.getKeyPair();
-    const pubKeyBytes = await this.encryptionService.getPubKeyBytes(keypair);
-
-    const params = new URLSearchParams();
-    params.append('pubkey', this.encryptionService.toBase64(pubKeyBytes));
-
-    const saltBytes = this.encryptionService.getRandomSalt();
-    const salt = this.encryptionService.toBase64(saltBytes);
-    params.append('salt', salt);
-
-    const signature = await this.encryptionService.sign(
-      shareCode,
-      pubKeyBytes,
-      saltBytes
-    );
-    params.append('hmac', this.encryptionService.toBase64(signature));
+    const encryptionInfo = await this.encryptionService.getInfo();
+    const params = await this.encryptionService.getQueryParams(shareCode);
 
     console.log(params.toString());
 
-    const uri = new URL(window.location.href);
-    uri.protocol = window.location.protocol == 'https:' ? 'wss' : 'ws';
-    uri.hostname = window.location.hostname;
-    uri.port = window.location.port == '4200' ? '8080' : window.location.port;
-    uri.pathname = '/ws';
-    uri.search = params.toString();
+    const uri = UrlHelper.buildUrl(params);
 
     let gotPairCode = false;
     let gotReceiverInfo = false;
@@ -97,7 +80,7 @@ export class SendComponent {
           rawData.byteLength
         );
 
-        const aesKey = await this.encryptionService.getAesKey(shareCode, keypair, rpubKey);
+        const aesKey = await this.encryptionService.getAesKey(shareCode, encryptionInfo.keyPair, rpubKey);
 
         const nonce = new Uint8Array(12);
 
