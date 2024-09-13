@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { EncryptionService } from '../services/encryption.service';
+import { AEAD_OVERHEAD, CHUNK_SIZE, ENCRYPTED_CHUNK_SIZE, EncryptionService } from '../services/encryption.service';
 import { WebsocketJsonMessage } from '../util/websocket/websocket-json-message';
 import { ClientInfo } from '../util/websocket/websocket';
 import { RouterLink } from '@angular/router';
@@ -60,9 +60,6 @@ export class ReceiveComponent {
     let size: number;
     const nonce = new Uint8Array(12);
     let offset = 0;
-    const chunk_size = 8192*2;
-    const aead_overhead = 16;
-    const enc_chunk_size = chunk_size + aead_overhead;
 
     let encryptedData: Uint8Array;
 
@@ -79,7 +76,7 @@ export class ReceiveComponent {
       while (readOffset < offset) {
         const chunk = encryptedData.slice(
           readOffset,
-          Math.min(readOffset + enc_chunk_size, encryptedData.byteLength)
+          Math.min(readOffset + ENCRYPTED_CHUNK_SIZE, encryptedData.byteLength)
         );
 
         console.log('sliced chunk', readOffset);
@@ -99,7 +96,7 @@ export class ReceiveComponent {
         
         encryptedData.set(new Uint8Array(decrypted), decryptedOffset);
         decryptedOffset += decrypted.byteLength;
-        readOffset += enc_chunk_size;
+        readOffset += ENCRYPTED_CHUNK_SIZE;
         this.encryptionService.incrementNonce(nonce);
         console.log('Incremented nonce');
       }
@@ -169,7 +166,7 @@ export class ReceiveComponent {
         size = message.payload;
         console.log('Size: ' + size);
         encryptedData = new Uint8Array(
-          size + Math.ceil(size / chunk_size) * aead_overhead
+          size + Math.ceil(size / CHUNK_SIZE) * AEAD_OVERHEAD
         );
 
         gotSize = true;

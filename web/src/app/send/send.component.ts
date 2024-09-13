@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { EncryptionService } from '../services/encryption.service';
+import { CHUNK_SIZE, EncryptionService } from '../services/encryption.service';
 import { SharecodeService } from '../sharecode.service';
 import { WebsocketJsonMessage } from '../util/websocket/websocket-json-message';
 import { ClientInfo } from '../util/websocket/websocket';
@@ -12,7 +12,6 @@ import { UrlHelper } from '../util/url-helper';
   imports: [FormsModule],
   templateUrl: './send.component.html',
   styleUrl: './send.component.css',
-  providers: [EncryptionService],
 })
 export class SendComponent {
   public data = signal('');
@@ -85,9 +84,8 @@ export class SendComponent {
         const nonce = new Uint8Array(12);
 
         let offset = 0;
-        const chunk_size = 8192*2;
         while (offset < rawData.byteLength) {
-          const chunk = rawData.slice(offset, Math.min(offset + chunk_size, rawData.byteLength));
+          const chunk = rawData.slice(offset, Math.min(offset + CHUNK_SIZE, rawData.byteLength));
           const encrypted = await window.crypto.subtle.encrypt(
             {
               name: 'AES-GCM',

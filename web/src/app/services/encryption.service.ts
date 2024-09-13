@@ -21,7 +21,13 @@ export class EncryptionInfo {
   }
 }
 
-@Injectable()
+export const CHUNK_SIZE = 8192*2;
+export const AEAD_OVERHEAD = 16;
+export const ENCRYPTED_CHUNK_SIZE = CHUNK_SIZE + AEAD_OVERHEAD;
+
+@Injectable({
+  providedIn: 'root'
+})
 export class EncryptionService {
   private info: EncryptionInfo | null = null;
 
