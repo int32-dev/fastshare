@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -19,6 +21,9 @@ type Options struct {
 	Port int `short:"p" long:"port" default:"8080" description:"port to use for server"`
 }
 
+//go:embed web/dist/web/browser/*
+var webContent embed.FS
+
 var options Options
 var parser = flags.NewParser(&options, flags.Default)
 var senderConLock = sync.Mutex{}
@@ -32,6 +37,13 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", errorMiddleware(handleWsConnect))
+	webfs, err := fs.Sub(webContent, "web/dist/web/browser")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+
+	mux.Handle("/", http.FileServer(http.FS(webfs)))
 
 	go monitorConnections()
 

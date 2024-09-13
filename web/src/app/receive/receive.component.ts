@@ -63,7 +63,7 @@ export class ReceiveComponent {
     const uri = new URL(window.location.href);
     uri.protocol = window.location.protocol == 'https:' ? 'wss' : 'ws';
     uri.hostname = window.location.hostname;
-    uri.port = '8080';
+    uri.port = window.location.port == '4200' ? '8080' : window.location.port;
     uri.pathname = '/ws';
     uri.search = params.toString();
 
@@ -80,7 +80,7 @@ export class ReceiveComponent {
     let size: number;
     const nonce = new Uint8Array(12);
     let offset = 0;
-    const chunk_size = 8192 * 2;
+    const chunk_size = 8192*2;
     const aead_overhead = 16;
     const enc_chunk_size = chunk_size + aead_overhead;
 

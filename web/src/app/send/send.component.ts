@@ -45,7 +45,7 @@ export class SendComponent {
     const uri = new URL(window.location.href);
     uri.protocol = window.location.protocol == 'https:' ? 'wss' : 'ws';
     uri.hostname = window.location.hostname;
-    uri.port = '8080';
+    uri.port = window.location.port == '4200' ? '8080' : window.location.port;
     uri.pathname = '/ws';
     uri.search = params.toString();
 
@@ -102,7 +102,7 @@ export class SendComponent {
         const nonce = new Uint8Array(12);
 
         let offset = 0;
-        const chunk_size = 20;
+        const chunk_size = 8192*2;
         while (offset < rawData.byteLength) {
           const chunk = rawData.slice(offset, Math.min(offset + chunk_size, rawData.byteLength));
           const encrypted = await window.crypto.subtle.encrypt(
