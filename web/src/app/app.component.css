@@ -4,6 +4,10 @@ header {
     background-color: #333;
     color: white;
     font-size: 2rem;
+
+    span {
+        cursor: pointer;
+    }
 }
 
 main {

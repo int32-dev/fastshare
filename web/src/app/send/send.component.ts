@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { EncryptionService } from '../services/encryption.service';
 import { SharecodeService } from '../sharecode.service';
 import { WebsocketJsonMessage } from '../util/websocket/websocket-json-message';
-import { ClientInfo as WsClientInfo } from '../util/websocket/websocket';
+import { ClientInfo } from '../util/websocket/websocket';
 
 @Component({
   selector: 'app-send',
@@ -70,7 +70,7 @@ export class SendComponent {
 
       if (!gotReceiverInfo) {
         const message =
-          WebsocketJsonMessage.fromWebsocketMessage<WsClientInfo>(event);
+          WebsocketJsonMessage.fromWebsocketMessage<ClientInfo>(event);
         if (message.route != 'receiverInfo') {
           ws.close(1002);
           throw new Error('Unexpected message');

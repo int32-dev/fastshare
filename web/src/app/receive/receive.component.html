@@ -1,0 +1,11 @@
+<label>Share Code</label>
+<br />
+<input type="text" [(ngModel)]="shareCode" />
+
+<button (click)="receive()">Receive</button>
+
+<div>
+    <label>Received Message</label>
+    <br />
+    <textarea [value]="receivedData()" rows="10" cols="50"></textarea>
+</div>
