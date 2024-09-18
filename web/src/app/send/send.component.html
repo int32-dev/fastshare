@@ -1,9 +1,24 @@
-<label>Message:</label>
-<br />
-<input type="text" [(ngModel)]="data" />
+<section id="SendSection">
+    <div class="sharecode">
+        @if (this.sharePairCode()) {
+            <p>Share code: {{ sharePairCode() }}</p>
+        }
+    </div>
 
-<button type="button" (click)="send()">Send</button>
+    <div class="textMessage">
+        <label>Text Message:</label>
+        <br />
+        <textarea [(ngModel)]="data"></textarea>
+        <br />
+        <button type="button" (click)="send()">Send</button>
+    </div>
 
-@if (this.sharePairCode()) {
-    <p>Share pair code: {{ sharePairCode() }}</p>
-}
+    <div class="file">
+        <label>File:</label>
+        <br />
+        <input type="file" (change)="fileChange($event)" />
+        <button type="button" (click)="sendFile()">Send File</button>
+    </div>
+
+
+</section>

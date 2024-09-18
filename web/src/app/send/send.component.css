@@ -1,0 +1,17 @@
+#SendSection {
+    display: grid;
+    grid-template-areas: "header header" "message file";
+    grid-template-columns: 50% 50%;
+}
+
+.sharecode {
+    grid-area: header;
+}
+
+.textMessage {
+    grid-area: message;
+}
+
+.file {
+    grid-area: file;
+}

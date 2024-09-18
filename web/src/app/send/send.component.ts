@@ -16,13 +16,70 @@ import { UrlHelper } from '../util/url-helper';
 export class SendComponent {
   public data = signal('');
   public sharePairCode = signal('');
+  public files: File[] = [];
 
   public constructor(
     private encryptionService: EncryptionService,
     private sharecodeService: SharecodeService
   ) {}
 
+  public fileChange(event: any) {
+    this.files = event?.target?.files || [];
+  }
+
+  public async sendFile() {
+    if (!this.files) {
+      return;
+    }
+
+    if (this.files.length > 1) {
+      alert("Can only send one file.");
+      return ;
+    }
+
+    const size = this.files[0].size;
+    let reg = await navigator.serviceWorker.register('/sw.js');
+    reg = await navigator.serviceWorker.ready;
+
+    fetch('/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': size.toString(),
+      },
+      body: this.files[0]
+    })
+
+    console.log('sent?');
+
+    // await this.sendData(this.files[0].stream(), size);
+  }
+
   public async send() {
+    const rawData = new TextEncoder().encode(this.data());
+
+    let offset = 0;
+
+    const stream = new ReadableStream({
+      type: 'bytes',
+      pull(controller) {
+        if (controller.byobRequest?.view) {
+          const view: ArrayBufferView = controller.byobRequest.view;
+          const arr = new Uint8Array(view.buffer);
+
+          const remaining = rawData.length - offset;
+          const toWrite = Math.min(view.byteLength, remaining);
+
+          arr.set(rawData.slice(offset, offset + toWrite), 0);
+          controller.byobRequest.respond(toWrite);
+        }
+      }
+    });
+
+    await this.sendData(stream, rawData.byteLength);
+  }
+
+  private async sendData(data: ReadableStream, size: number) {
     const shareCode = this.sharecodeService.getShareCode();
     const encryptionInfo = await this.encryptionService.getInfo();
     const params = await this.encryptionService.getQueryParams(shareCode);
@@ -60,51 +117,75 @@ export class SendComponent {
 
         gotReceiverInfo = true;
 
-        const rPubBytes = this.encryptionService.fromBase64(message.payload.PubKey);
+        const rPubBytes = this.encryptionService.fromBase64(
+          message.payload.PubKey
+        );
         const rpubKey = await this.encryptionService.importPubKey(rPubBytes);
 
         const rSalt = this.encryptionService.fromBase64(message.payload.Salt);
         const rHmac = this.encryptionService.fromBase64(message.payload.Hmac);
 
-        const valid = await this.encryptionService.verify(shareCode, rPubBytes, rHmac, rSalt);
+        const valid = await this.encryptionService.verify(
+          shareCode,
+          rPubBytes,
+          rHmac,
+          rSalt
+        );
         if (!valid) {
           ws.close(1002);
           throw new Error('Invalid signature');
         }
 
-        const rawData = new TextEncoder().encode(this.data());
+        ws.send('size\n' + size);
 
-        ws.send(
-          'size\n' +
-          rawData.byteLength
+        const aesKey = await this.encryptionService.getAesKey(
+          shareCode,
+          encryptionInfo.keyPair,
+          rpubKey
         );
-
-        const aesKey = await this.encryptionService.getAesKey(shareCode, encryptionInfo.keyPair, rpubKey);
 
         const nonce = new Uint8Array(12);
 
-        let offset = 0;
-        while (offset < rawData.byteLength) {
-          const chunk = rawData.slice(offset, Math.min(offset + CHUNK_SIZE, rawData.byteLength));
-          const encrypted = await window.crypto.subtle.encrypt(
-            {
-              name: 'AES-GCM',
-              iv: nonce,
-              additionalData: new TextEncoder().encode(shareCode),
-            },
-            aesKey,
-            chunk
-          );
+        let chunkBuf = new ArrayBuffer(CHUNK_SIZE);
 
-          ws.send(encrypted);
-          offset += chunk.byteLength;
-          this.encryptionService.incrementNonce(nonce);
+        try {
+          const r = data.getReader({ mode: 'byob' });
+
+          let offset = 0;
+          while (offset < size) {
+            const d = await r.read(new Uint8Array(chunkBuf, 0, CHUNK_SIZE));
+  
+            if (d.value) {
+              chunkBuf = d.value.buffer;
+  
+              const encrypted = await window.crypto.subtle.encrypt(
+                {
+                  name: 'AES-GCM',
+                  iv: nonce,
+                  additionalData: new TextEncoder().encode(shareCode),
+                },
+                aesKey,
+                d.value,
+              );
+  
+              ws.send(encrypted);
+              offset += d.value.byteLength;
+              this.encryptionService.incrementNonce(nonce);
+            }
+  
+            if (d.done) {
+              break;
+            }
+          }
+        }
+        catch (e) {
+          console.error(e);
         }
 
         setTimeout(() => {
           ws.close(1000);
           console.log('done');
-        }, 1000)
+        }, 1000);
       }
     };
   }
