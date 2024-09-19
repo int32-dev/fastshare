@@ -22,168 +22,18 @@ export class ReceiveComponent {
   public constructor(private encryptionService: EncryptionService) {}
 
   public async receive() {
+    const reg = await navigator.serviceWorker.ready;
+
     const sharePairCode = this.shareCode();
-    if (sharePairCode.length <= PAIR_CODE_LENGTH) {
-      throw new Error('Invalid pair code');
-    }
-
-    const pairCode = sharePairCode.substring(
-      sharePairCode.length - PAIR_CODE_LENGTH
-    );
-    const shareCode = sharePairCode.substring(
-      0,
-      sharePairCode.length - PAIR_CODE_LENGTH
-    );
-
     console.log('Receiving data...');
 
+    const link = document.createElement('a');
+    const params = new URLSearchParams();
+    params.append('paircode', sharePairCode);
+    link.href = "/receiveFile?" + params.toString();
 
-    const encryptionInfo = await this.encryptionService.getInfo();
-    const params = await this.encryptionService.getQueryParams(shareCode);
+    document.querySelector('body')?.appendChild(link);
 
-    params.append('paircode', pairCode);
-
-    console.log(params.toString());
-
-    const uri = UrlHelper.buildUrl(params);
-
-    let gotSenderInfo = false;
-    let gotSize = false;
-
-    const ws = new WebSocket(uri.toString());
-
-    let sPubBytes: ArrayBuffer;
-    let spubKey: CryptoKey;
-    let sSalt: ArrayBuffer;
-    let sHmac: ArrayBuffer;
-    let aesKey: CryptoKey;
-    let size: number;
-    const nonce = new Uint8Array(12);
-    let offset = 0;
-
-    let encryptedData: Uint8Array;
-
-    ws.onclose = async (event: CloseEvent) => {
-      if (event.code != 1000) {
-        throw new Error('Connection closed unexpectedly');
-      }
-
-      let readOffset = 0;
-      let decryptedOffset = 0;
-
-      console.log('Decrypting data');
-
-      while (readOffset < offset) {
-        const chunk = encryptedData.slice(
-          readOffset,
-          Math.min(readOffset + ENCRYPTED_CHUNK_SIZE, encryptedData.byteLength)
-        );
-
-        console.log('sliced chunk', readOffset);
-
-        const decrypted = await window.crypto.subtle.decrypt(
-          {
-            name: 'AES-GCM',
-            iv: nonce,
-            additionalData: new TextEncoder().encode(shareCode),
-          },
-          aesKey,
-          chunk
-        );
-        
-        console.log('Decrypted chunk', decryptedOffset);
-        console.log(decrypted);
-        
-        encryptedData.set(new Uint8Array(decrypted), decryptedOffset);
-        decryptedOffset += decrypted.byteLength;
-        readOffset += ENCRYPTED_CHUNK_SIZE;
-        this.encryptionService.incrementNonce(nonce);
-        console.log('Incremented nonce');
-      }
-
-      console.log('Received data');
-      const plainText = new TextDecoder().decode(encryptedData.slice(0, size));
-      console.log(plainText);
-      this.receivedData.set(plainText);
-    };
-
-    ws.onmessage = async (event: MessageEvent) => {
-      if (!gotSenderInfo) {
-        const message =
-          WebsocketJsonMessage.fromWebsocketMessage<ClientInfo>(event);
-        if (message.route != 'senderInfo') {
-          ws.close(1002);
-          throw new Error('Unexpected message');
-        }
-
-        gotSenderInfo = true;
-
-        sPubBytes = this.encryptionService.fromBase64(message.payload.PubKey);
-        spubKey = await this.encryptionService.importPubKey(sPubBytes);
-
-        sSalt = this.encryptionService.fromBase64(message.payload.Salt);
-        sHmac = this.encryptionService.fromBase64(message.payload.Hmac);
-
-        const valid = await this.encryptionService.verify(
-          shareCode,
-          sPubBytes,
-          sHmac,
-          sSalt
-        );
-
-        if (!valid) {
-          ws.close(1002);
-          throw new Error('Invalid signature');
-        }
-
-        ws.send(
-          'receiverInfo\n' +
-            JSON.stringify(<ClientInfo>{
-              PubKey: params.get('pubkey'),
-              Salt: params.get('salt'),
-              Hmac: params.get('hmac'),
-            })
-        );
-
-        aesKey = await this.encryptionService.getAesKey(
-          shareCode,
-          encryptionInfo.keyPair,
-          spubKey
-        );
-
-        return;
-      }
-
-      if (!gotSize) {
-        const message =
-          WebsocketJsonMessage.fromWebsocketMessage<number>(event);
-
-        if (message.route != 'size') {
-          ws.close(1002);
-          throw new Error('Unexpected message');
-        }
-
-        size = message.payload;
-        console.log('Size: ' + size);
-        encryptedData = new Uint8Array(
-          size + Math.ceil(size / CHUNK_SIZE) * AEAD_OVERHEAD
-        );
-
-        gotSize = true;
-        return;
-      }
-
-      try {
-        const arrData = await event.data.arrayBuffer();
-        const data = new Uint8Array(arrData);
-
-        encryptedData.set(new Uint8Array(data), offset);
-
-        offset += data.byteLength;
-      } catch (e) {
-        console.error(e);
-        ws.close(1002);
-      }
-    };
+    link.click();
   }
 }

@@ -38,17 +38,16 @@ export class SendComponent {
     }
 
     const size = this.files[0].size;
-    let reg = await navigator.serviceWorker.register('/sw.js');
-    reg = await navigator.serviceWorker.ready;
 
-    fetch('/send', {
+    const reg = await navigator.serviceWorker.ready;
+
+    const formaData = new FormData();
+    formaData.append('file', this.files[0]);
+
+    fetch('/sendFile', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': size.toString(),
-      },
-      body: this.files[0]
-    })
+      body: formaData
+    });
 
     console.log('sent?');
 

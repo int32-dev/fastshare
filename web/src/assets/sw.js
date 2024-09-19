@@ -4,24 +4,82 @@
 const sw = self;
 
 sw.addEventListener("install", (event) => {
-    console.log("Service worker installed");
-    sw.skipWaiting();
+  console.log("Service worker installed");
+  sw.skipWaiting();
 });
 
 sw.addEventListener("activate", (event) => {
-    console.log("Service worker activated");
-    event.waitUntil(sw.clients.claim());
+  console.log("Service worker activated");
+  event.waitUntil(sw.clients.claim());
 });
 
 sw.addEventListener("message", (event) => {
-    console.log("Received message", event.data);
-    if (event.data.size > 0) {
-        sendData(event.data.file, event.data.size);
+  console.log("Received message", event.data);
+  if (event.data.size > 0) {
+    sendData(event.data.file, event.data.size);
+  }
+});
+
+sw.addEventListener("fetch", async (event) => {
+  console.log("Fetch event", event.request.url);
+
+  if (event.request.url.includes("/sendFile")) {
+    const data = await event.request.formData();
+    /**
+     * @type {File}
+     */
+    const file = data.get("file");
+    console.log("file:", file);
+    try {
+      await sendData(file.stream(), file.size);
+    } catch (e) {
+      console.error(e);
+      const response = new Response("Error", {
+        status: 500,
+        statusText: "Internal Server Error",
+        headers: {
+          "Content-Type": "text/plain",
+        },
+      });
+
+      event.respondWith(response);
     }
+
+    const response = new Response("OK", {
+      status: 200,
+      statusText: "OK",
+      headers: {
+        "Content-Type": "text/plain",
+      },
+    });
+
+    event.respondWith(response);
+  } else if (event.request.url.includes("/receiveFile")) {
+    const url = new URL(event.request.url);
+    const sharePairCode = url.searchParams.get("paircode");
+    console.log("share pair code: ", sharePairCode);
+
+    const stream = new ReadableStream({
+      start(controller) {
+        console.log("created controller...");
+        receiveData(sharePairCode, controller);
+      },
+    });
+
+    const response = new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": "attachment; filename=received.bin",
+      },
+    });
+
+    event.respondWith(response);
+  }
 });
 
 /**
- * 
+ *
  * @returns {string}
  */
 function getShareCode() {
@@ -69,19 +127,19 @@ function parseWsTextMessage(event) {
 }
 
 /**
- * 
- * @param {URLSearchParams} params 
+ *
+ * @param {URLSearchParams} params
  * @returns {string}
  */
-function buildUrl(params){
-    const uri = new URL(sw.location.href);
-    uri.protocol = sw.location.protocol == 'https:' ? 'wss' : 'ws';
-    uri.hostname = sw.location.hostname;
-    uri.port = sw.location.port == '4200' ? '8080' : sw.location.port;
-    uri.pathname = '/ws';
-    uri.search = params.toString();
+function buildUrl(params) {
+  const uri = new URL(sw.location.href);
+  uri.protocol = sw.location.protocol == "https:" ? "wss" : "ws";
+  uri.hostname = sw.location.hostname;
+  uri.port = sw.location.port == "4200" ? "8080" : sw.location.port;
+  uri.pathname = "/ws";
+  uri.search = params.toString();
 
-    return uri.toString();
+  return uri.toString();
 }
 
 /**
@@ -126,20 +184,13 @@ async function sendData(data, size) {
 
       gotReceiverInfo = true;
 
-      const rPubBytes = fromBase64(
-        message.payload.PubKey
-      );
+      const rPubBytes = fromBase64(message.payload.PubKey);
       const rpubKey = await importPubKey(rPubBytes);
 
       const rSalt = fromBase64(message.payload.Salt);
       const rHmac = fromBase64(message.payload.Hmac);
 
-      const valid = await verify(
-        shareCode,
-        rPubBytes,
-        rHmac,
-        rSalt
-      );
+      const valid = await verify(shareCode, rPubBytes, rHmac, rSalt);
       if (!valid) {
         ws.close(1002);
         throw new Error("Invalid signature");
@@ -163,10 +214,10 @@ async function sendData(data, size) {
         let offset = 0;
         while (offset < size) {
           const d = await r.read(new Uint8Array(chunkBuf, 0, CHUNK_SIZE));
-  
+
           if (d.value) {
             chunkBuf = d.value.buffer;
-  
+
             const encrypted = await self.crypto.subtle.encrypt(
               {
                 name: "AES-GCM",
@@ -176,18 +227,17 @@ async function sendData(data, size) {
               aesKey,
               d.value
             );
-  
+
             ws.send(encrypted);
             offset += d.value.byteLength;
             incrementNonce(nonce);
           }
-  
+
           if (d.done) {
             break;
           }
         }
-      }
-      catch (e) {
+      } catch (e) {
         console.error(e);
       }
 
@@ -334,12 +384,13 @@ function getRandomSalt() {
  * @returns {Promise<CryptoKey>}
  */
 async function importPubKey(pubKeyBytes) {
+  console.log(pubKeyBytes);
   return await self.crypto.subtle.importKey(
     "raw",
     pubKeyBytes,
     { name: "ECDH", namedCurve: "P-256" },
     true,
-    ["deriveKey"]
+    []
   );
 }
 
@@ -408,11 +459,7 @@ async function verify(shareCode, pubKeyBytes, expectedSignature, salt) {
 async function sign(shareCode, pubKeyBytes, salt) {
   const hmacKey = await getHmacKey(shareCode, salt);
 
-  const signature = await self.crypto.subtle.sign(
-    "HMAC",
-    hmacKey,
-    pubKeyBytes
-  );
+  const signature = await self.crypto.subtle.sign("HMAC", hmacKey, pubKeyBytes);
 
   return signature;
 }
@@ -436,7 +483,7 @@ async function getAesKey(shareCode, keyPair, pubKey) {
       salt: new ArrayBuffer(0),
       info: new TextEncoder().encode(shareCode),
     },
-    true,
+    false,
     ["deriveKey"]
   );
 
@@ -449,7 +496,7 @@ async function getAesKey(shareCode, keyPair, pubKey) {
     },
     hkdfKey,
     { name: "AES-GCM", length: 256 },
-    true,
+    false,
     ["encrypt", "decrypt"]
   );
 
@@ -469,4 +516,220 @@ function incrementNonce(nonce) {
       break;
     }
   }
+}
+
+const PAIR_CODE_LENGTH = 4;
+
+class Queue {
+  constructor() {
+    this._queue = [];
+    this._closed = false;
+  }
+
+  enqueue(item) {
+    if (this._closed) {
+      throw new Error("Queue is closed");
+    }
+
+    this._queue.push(item);
+  }
+
+  dequeue() {
+    if (this._queue.length == 0) {
+      return null;
+    }
+
+    return this._queue.shift();
+  }
+
+  close() {
+    this._closed = true;
+  }
+
+  get closed() {
+    return this._closed;
+  }
+}
+
+/**
+ *
+ * @param {string} sharePairCode
+ * @param {ReadableStreamController} responseStream
+ */
+async function receiveData(sharePairCode, responseStream) {
+  //   try {
+  if (sharePairCode.length <= PAIR_CODE_LENGTH) {
+    throw new Error("Invalid pair code");
+  }
+
+  console.log("Pair code: " + sharePairCode);
+
+  const pairCode = sharePairCode.substring(
+    sharePairCode.length - PAIR_CODE_LENGTH
+  );
+
+  const shareCode = sharePairCode.substring(
+    0,
+    sharePairCode.length - PAIR_CODE_LENGTH
+  );
+
+  console.log("Receiving data...");
+
+  const encryptionInfo = await getInfo();
+  const params = await getQueryParams(sharePairCode);
+
+  params.append("paircode", pairCode);
+
+  console.log(params.toString());
+
+  const uri = buildUrl(params);
+
+  let gotSenderInfo = false;
+  let gotSize = false;
+
+  console.log(uri);
+
+  const ws = new WebSocket(uri.toString());
+
+  let sPubBytes;
+  let spubKey;
+  let sSalt;
+  let sHmac;
+  let aesKey;
+  let size;
+  const nonce = new Uint8Array(12);
+  let offset = 0;
+  let queue = new Queue();
+  let startedProcessing = false;
+
+  ws.onclose = async (event) => {
+    console.log("Connection closed", event);
+    if (event.code != 1000) {
+      console.log("error");
+      responseStream.error(new Error("Connection closed unexpectedly"));
+      throw new Error("Connection closed unexpectedly");
+    }
+
+    //   responseStream.close();
+  };
+
+  ws.onmessage = async (event) => {
+    if (!gotSenderInfo) {
+      const message = parseWsTextMessage(event);
+      if (message.route != "senderInfo") {
+        ws.close(1002);
+        throw new Error("Unexpected message");
+      }
+
+      gotSenderInfo = true;
+
+      console.log(message);
+
+      sPubBytes = fromBase64(message.payload.PubKey);
+      console.log("import pubkey");
+      spubKey = await importPubKey(sPubBytes);
+      console.log("done import");
+
+      sSalt = fromBase64(message.payload.Salt);
+      sHmac = fromBase64(message.payload.Hmac);
+
+      const valid = await verify(shareCode, sPubBytes, sHmac, sSalt);
+
+      if (!valid) {
+        ws.close(1002);
+        console.log("invalid signature");
+        throw new Error("Invalid signature");
+      }
+
+      console.log("valid signature");
+
+      const signature = await sign(
+        shareCode,
+        encryptionInfo.pubKeyBytes,
+        encryptionInfo.salt
+      );
+
+      ws.send(
+        "receiverInfo\n" +
+          JSON.stringify({
+            PubKey: toBase64(encryptionInfo.pubKeyBytes),
+            Salt: toBase64(encryptionInfo.salt),
+            Hmac: toBase64(signature),
+          })
+      );
+
+      console.log("sent receiver info");
+
+      aesKey = await getAesKey(shareCode, encryptionInfo.keyPair, spubKey);
+
+      return;
+    }
+
+    if (!gotSize) {
+      const message = parseWsTextMessage(event);
+
+      if (message.route != "size") {
+        ws.close(1002);
+        throw new Error("Unexpected message");
+      }
+
+      size = parseInt(message.payload);
+      console.log("Size: " + size);
+
+      gotSize = true;
+      return;
+    }
+
+    queue.enqueue(event.data);
+
+    if (!startedProcessing) {
+      startedProcessing = true;
+      async function process() {
+        if (queue.closed) {
+          return;
+        }
+
+        const msg = queue.dequeue();
+        if (msg == null) {
+          setTimeout(process, 0);
+        }
+
+        const arrData = await msg.arrayBuffer();
+        const data = new Uint8Array(arrData);
+
+        console.log("decrypt...", nonce);
+        const decrypted = await self.crypto.subtle.decrypt(
+          {
+            name: "AES-GCM",
+            iv: nonce,
+            additionalData: new TextEncoder().encode(shareCode),
+          },
+          aesKey,
+          data
+        );
+
+        console.log("decrypted:");
+
+        responseStream.enqueue(new Uint8Array(decrypted));
+
+        incrementNonce(nonce);
+        offset += data.byteLength;
+
+        if (offset >= size) {
+          queue.close();
+          responseStream.close();
+          // ws.close(1000);
+          return;
+        }
+
+        setTimeout(process, 0);
+      }
+
+      process();
+    }
+  };
+  //   } catch (e) {
+  //     responseStream.error(e);
+  //     throw e;
+  //   }
 }

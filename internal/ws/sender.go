@@ -122,7 +122,8 @@ func Send(shareCode string, url string, r io.Reader, size int64) error {
 		return err
 	}
 
-	return s.conn.Close(websocket.StatusNormalClosure, "")
+	err = s.conn.Close(websocket.StatusNormalClosure, "")
+	return err
 }
 
 func (s *WsSenderHandler) writeSizeMessage(size int64) error {
